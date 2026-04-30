@@ -25,6 +25,7 @@ export interface WsProtocolCloseContext {
 export interface WsProtocolLifecycleHandlers {
   readonly getConnectionLabel?: () => string | null;
   readonly isCloseIntentional?: () => boolean;
+  readonly isActive?: () => boolean;
   readonly onAttempt?: (socketUrl: string) => void;
   readonly onOpen?: () => void;
   readonly onError?: (message: string) => void;
@@ -64,13 +65,14 @@ function resolveConnectionMetadata(handlers?: WsProtocolLifecycleHandlers): WsCo
 }
 
 type ComposedWsProtocolLifecycleHandlers = Required<
-  Pick<WsProtocolLifecycleHandlers, "onAttempt" | "onOpen" | "onError" | "onClose">
+  Pick<WsProtocolLifecycleHandlers, "isActive" | "onAttempt" | "onOpen" | "onError" | "onClose">
 >;
 
 function defaultLifecycleHandlers(
   handlers?: WsProtocolLifecycleHandlers,
 ): ComposedWsProtocolLifecycleHandlers {
   return {
+    isActive: () => true,
     onAttempt: (socketUrl) => {
       recordWsConnectionAttempt(socketUrl, resolveConnectionMetadata(handlers));
     },
@@ -95,21 +97,35 @@ function composeLifecycleHandlers(
   handlers?: WsProtocolLifecycleHandlers,
 ): ComposedWsProtocolLifecycleHandlers {
   const defaults = defaultLifecycleHandlers(handlers);
+  const isActive = handlers?.isActive ?? defaults.isActive;
 
   return {
+    isActive,
     onAttempt: (socketUrl) => {
+      if (!isActive()) {
+        return;
+      }
       defaults.onAttempt(socketUrl);
       handlers?.onAttempt?.(socketUrl);
     },
     onOpen: () => {
+      if (!isActive()) {
+        return;
+      }
       defaults.onOpen();
       handlers?.onOpen?.();
     },
     onError: (message) => {
+      if (!isActive()) {
+        return;
+      }
       defaults.onError(message);
       handlers?.onError?.(message);
     },
     onClose: (details, context) => {
+      if (!isActive()) {
+        return;
+      }
       defaults.onClose(details, context);
       handlers?.onClose?.(details, context);
     },
