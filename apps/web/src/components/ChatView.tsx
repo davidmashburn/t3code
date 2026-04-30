@@ -2417,9 +2417,7 @@ export default function ChatView(props: ChatViewProps) {
 
   const onRevertToTurnCount = useCallback(
     async (turnCount: number) => {
-      const api = readEnvironmentApi(environmentId);
-      const localApi = readLocalApi();
-      if (!api || !localApi || !activeThread || isRevertingCheckpoint) return;
+      if (!activeThread || isRevertingCheckpoint) return;
 
       if (activeEnvironmentUnavailable && activeEnvironmentUnavailableLabel) {
         setThreadError(
@@ -2428,6 +2426,10 @@ export default function ChatView(props: ChatViewProps) {
         );
         return;
       }
+
+      const api = readEnvironmentApi(environmentId);
+      const localApi = readLocalApi();
+      if (!api || !localApi) return;
       if (phase === "running" || isSendBusy || isConnecting) {
         setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
         return;
