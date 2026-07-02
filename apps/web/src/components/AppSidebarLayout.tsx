@@ -5,6 +5,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { isElectron } from "../env";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isMacPlatform } from "../lib/utils";
+import { useActiveEnvironmentId } from "../state/entities";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import ThreadSidebar from "./Sidebar";
 import { Sidebar, SidebarProvider, SidebarRail, SidebarTrigger, useSidebar } from "./ui/sidebar";
@@ -55,6 +56,7 @@ function SidebarControl() {
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const activeEnvironmentId = useActiveEnvironmentId();
   const macosWindowControlsStyle =
     isElectron && isMacPlatform(navigator.platform)
       ? ({ "--workspace-controls-left": MACOS_TRAFFIC_LIGHTS_LEFT_INSET } as CSSProperties)
@@ -76,6 +78,27 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       unsubscribe?.();
     };
   }, [navigate]);
+
+  useEffect(() => {
+    const onOpenThread = window.desktopBridge?.onOpenThread;
+    if (typeof onOpenThread !== "function") {
+      return;
+    }
+
+    const unsubscribe = onOpenThread((threadId) => {
+      if (!activeEnvironmentId) {
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: activeEnvironmentId, threadId },
+      });
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [navigate, activeEnvironmentId]);
 
   return (
     <SidebarProvider className="h-dvh! min-h-0!" defaultOpen style={macosWindowControlsStyle}>
