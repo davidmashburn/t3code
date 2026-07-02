@@ -55,6 +55,10 @@ import { projectActivityPayload } from "../ActivityPayloadProjection.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import {
+  assistantSegmentBaseKeyFromRuntimeItem,
+  assistantSegmentMessageId as scopedAssistantSegmentMessageId,
+} from "../assistantMessageIds.ts";
 import { canReplaceThreadTitle } from "../threadTitles.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
@@ -303,7 +307,7 @@ function proposedPlanIdFromEvent(event: ProviderRuntimeEvent, threadId: ThreadId
 }
 
 function assistantSegmentBaseKeyFromEvent(event: ProviderRuntimeEvent): string {
-  return String(event.itemId ?? event.turnId ?? event.eventId);
+  return assistantSegmentBaseKeyFromRuntimeItem(event.itemId, event.turnId, event.eventId);
 }
 
 /**
@@ -324,7 +328,11 @@ function assistantSegmentMessageId(
   baseKey: string,
   segmentIndex: number,
   role: MessageStreamRole = "assistant",
+  turnId?: TurnId,
 ): MessageId {
+  if (role === "assistant") {
+    return scopedAssistantSegmentMessageId(baseKey, segmentIndex, turnId);
+  }
   const prefix = role === "reasoning" ? REASONING_MESSAGE_ID_PREFIX : "assistant:";
   return MessageId.make(
     segmentIndex === 0 ? `${prefix}${baseKey}` : `${prefix}${baseKey}:segment:${segmentIndex}`,
@@ -1238,7 +1246,7 @@ const make = Effect.gen(function* () {
             onNone: () => ({
               baseKey: input.baseKey,
               nextSegmentIndex: 1,
-              activeMessageId: assistantSegmentMessageId(input.baseKey, 0, role),
+              activeMessageId: assistantSegmentMessageId(input.baseKey, 0, role, input.turnId),
             }),
             onSome: (state) => {
               // Reasoning never resets the index on a new base key: one item can
@@ -1246,7 +1254,7 @@ const make = Effect.gen(function* () {
               // would otherwise reuse the id of the first, finished block.
               const reuseIndex = state.baseKey === input.baseKey || role === "reasoning";
               const segmentIndex = reuseIndex ? state.nextSegmentIndex : 0;
-              const messageId = assistantSegmentMessageId(input.baseKey, segmentIndex, role);
+              const messageId = assistantSegmentMessageId(input.baseKey, segmentIndex, role, input.turnId);
               return {
                 baseKey: input.baseKey,
                 nextSegmentIndex: reuseIndex ? state.nextSegmentIndex + 1 : 1,
@@ -1268,7 +1276,7 @@ const make = Effect.gen(function* () {
   }) =>
     Effect.gen(function* () {
       if (!input.turnId) {
-        return assistantSegmentMessageId(assistantSegmentBaseKeyFromEvent(input.event), 0);
+        return assistantSegmentMessageId(assistantSegmentBaseKeyFromEvent(input.event), 0, undefined);
       }
 
       const activeMessageId = yield* getActiveAssistantMessageIdForTurn(
@@ -2252,8 +2260,15 @@ const make = Effect.gen(function* () {
       const assistantCompletion =
         event.type === "item.completed" && event.payload.itemType === "assistant_message"
           ? {
-              messageId: MessageId.make(
-                `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
+              messageId: assistantSegmentMessageId(
+                assistantSegmentBaseKeyFromRuntimeItem(
+                  event.itemId,
+                  event.turnId,
+                  event.eventId,
+                ),
+                0,
+                "assistant",
+                toTurnId(event.turnId),
               ),
               fallbackText: event.payload.detail,
             }
@@ -2649,8 +2664,10 @@ const make = Effect.gen(function* () {
       checkpointRef: CheckpointRef.make(`provider-diff:${event.eventId}`),
       status: "missing",
       files: [],
-      assistantMessageId: MessageId.make(
-        `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
+      assistantMessageId: scopedAssistantSegmentMessageId(
+        assistantSegmentBaseKeyFromRuntimeItem(event.itemId, event.turnId, event.eventId),
+        0,
+        turnId,
       ),
       checkpointTurnCount: maxCheckpointTurnCount(checkpointContext.checkpoints) + 1,
       createdAt: now,
