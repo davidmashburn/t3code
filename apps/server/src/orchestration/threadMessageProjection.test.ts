@@ -1,7 +1,10 @@
 import { TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
-import { assistantMessageTurnChanged, mergeThreadMessageProjection } from "./threadMessageProjection.ts";
+import {
+  assistantMessageTurnChanged,
+  mergeThreadMessageProjection,
+} from "./threadMessageProjection.ts";
 
 describe("threadMessageProjection", () => {
   it("detects turn changes on reused assistant message ids", () => {

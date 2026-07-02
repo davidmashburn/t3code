@@ -13,6 +13,7 @@ import { isElectron } from "../env";
 import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { cn, isMacPlatform } from "../lib/utils";
+import { useActiveEnvironmentId } from "../state/entities";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
 import LegacyThreadSidebar from "./LegacySidebar";
@@ -187,6 +188,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     setIsWindowFullscreen(getWindowFullscreenState());
     return unsubscribe;
   }, [isMacosDesktop]);
+  const activeEnvironmentId = useActiveEnvironmentId();
 
   useEffect(() => {
     const onMenuAction = window.desktopBridge?.onMenuAction;
@@ -207,6 +209,27 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       unsubscribe?.();
     };
   }, [navigate, pathname]);
+
+  useEffect(() => {
+    const onOpenThread = window.desktopBridge?.onOpenThread;
+    if (typeof onOpenThread !== "function") {
+      return;
+    }
+
+    const unsubscribe = onOpenThread((threadId) => {
+      if (!activeEnvironmentId) {
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: activeEnvironmentId, threadId },
+      });
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [navigate, activeEnvironmentId]);
 
   return (
     <SidebarProvider className="h-dvh! min-h-0!" defaultOpen style={sidebarProviderStyle}>
