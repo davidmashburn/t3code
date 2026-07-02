@@ -1,12 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useEffect, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { isElectron } from "../env";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isMacPlatform } from "../lib/utils";
 import { useActiveEnvironmentId } from "../state/entities";
-import { primaryServerKeybindingsAtom } from "../state/server";
+import { primaryServerConfigAtom, primaryServerKeybindingsAtom } from "../state/server";
 import ThreadSidebar from "./Sidebar";
 import { Sidebar, SidebarProvider, SidebarRail, SidebarTrigger, useSidebar } from "./ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -57,10 +57,29 @@ function SidebarControl() {
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const activeEnvironmentId = useActiveEnvironmentId();
+  const serverConfig = useAtomValue(primaryServerConfigAtom);
+  const pendingThreadIdRef = useRef<string | null>(null);
   const macosWindowControlsStyle =
     isElectron && isMacPlatform(navigator.platform)
       ? ({ "--workspace-controls-left": MACOS_TRAFFIC_LIGHTS_LEFT_INSET } as CSSProperties)
       : undefined;
+
+  const resolveEnvironmentId = () =>
+    activeEnvironmentId ?? serverConfig?.environment.environmentId ?? null;
+
+  useEffect(() => {
+    const environmentId = resolveEnvironmentId();
+    const pendingThreadId = pendingThreadIdRef.current;
+    if (!environmentId || !pendingThreadId) {
+      return;
+    }
+
+    pendingThreadIdRef.current = null;
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: { environmentId, threadId: pendingThreadId },
+    });
+  }, [activeEnvironmentId, navigate, serverConfig]);
 
   useEffect(() => {
     const onMenuAction = window.desktopBridge?.onMenuAction;
@@ -86,19 +105,23 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     }
 
     const unsubscribe = onOpenThread((threadId) => {
-      if (!activeEnvironmentId) {
+      const environmentId = resolveEnvironmentId();
+      if (!environmentId) {
+        pendingThreadIdRef.current = threadId;
         return;
       }
+
+      pendingThreadIdRef.current = null;
       void navigate({
         to: "/$environmentId/$threadId",
-        params: { environmentId: activeEnvironmentId, threadId },
+        params: { environmentId, threadId },
       });
     });
 
     return () => {
       unsubscribe?.();
     };
-  }, [navigate, activeEnvironmentId]);
+  }, [navigate, activeEnvironmentId, serverConfig]);
 
   return (
     <SidebarProvider className="h-dvh! min-h-0!" defaultOpen style={macosWindowControlsStyle}>

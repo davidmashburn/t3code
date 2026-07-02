@@ -1310,6 +1310,13 @@ export function resolveDesktopUpdateChannel(version: string): "latest" | "nightl
   return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
 }
 
+// Keep in sync with apps/desktop/src/updates/updateChannels.ts.
+export function resolveDesktopBuildAppId(version: string): string {
+  return resolveDesktopUpdateChannel(version) === "nightly"
+    ? "com.t3tools.t3code.nightly"
+    : "com.t3tools.t3code.alpha";
+}
+
 export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIconAssets {
   if (resolveDesktopUpdateChannel(version) === "nightly") {
     return {
@@ -1351,7 +1358,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     | undefined,
 ) {
   const buildConfig: Record<string, unknown> = {
-    appId: DESKTOP_APP_ID,
+    appId: resolveDesktopBuildAppId(version),
     productName: resolveDesktopProductName(version),
     artifactName: "T3-Code-${version}-${arch}.${ext}",
     directories: {
