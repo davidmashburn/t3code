@@ -20,6 +20,7 @@ import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
   MENU_ACTION_CHANNEL,
+  OPEN_THREAD_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
@@ -112,6 +113,7 @@ export class DesktopWindow extends Context.Service<
     // DevTools) focused they zoom the guest page instead of the app UI.
     readonly zoomMain: (direction: MainWindowZoomDirection) => Effect.Effect<void>;
     readonly runMainContentsCommand: (command: MainWindowContentsCommand) => Effect.Effect<void>;
+    readonly openThread: (threadId: string) => Effect.Effect<void, DesktopWindowError>;
     readonly syncAppearance: Effect.Effect<void>;
   }
 >()("@t3tools/desktop/window/DesktopWindow") {}
@@ -299,6 +301,7 @@ export const make = Effect.gen(function* () {
   const electronApp = yield* ElectronApp.ElectronApp;
   const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
   const backendReadyRef = yield* Ref.make(false);
+  const pendingOpenThreadIdRef = yield* Ref.make<Option.Option<string>>(Option.none());
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   const context = yield* Effect.context<DesktopWindowRuntimeServices>();
   const runFork = Effect.runForkWith(context);
@@ -328,6 +331,36 @@ export const make = Effect.gen(function* () {
 
   const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
   const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+
+  const sendOpenThreadToWindow = (targetWindow: Electron.BrowserWindow, threadId: string) => {
+    const send = () => {
+      if (targetWindow.isDestroyed()) return;
+      targetWindow.webContents.send(OPEN_THREAD_CHANNEL, threadId);
+      void runPromise(electronWindow.reveal(targetWindow));
+    };
+
+    if (targetWindow.webContents.isLoadingMainFrame()) {
+      targetWindow.webContents.once("did-finish-load", send);
+      return;
+    }
+
+    send();
+  };
+
+  const flushPendingOpenThread = Effect.gen(function* () {
+    const pendingThreadId = yield* Ref.getAndSet(pendingOpenThreadIdRef, Option.none());
+    if (Option.isNone(pendingThreadId)) {
+      return;
+    }
+
+    const existingWindow = yield* currentMainWindow;
+    if (Option.isNone(existingWindow)) {
+      yield* Ref.set(pendingOpenThreadIdRef, pendingThreadId);
+      return;
+    }
+
+    sendOpenThreadToWindow(existingWindow.value, pendingThreadId.value);
+  });
 
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
     Electron.BrowserWindow,
@@ -725,6 +758,7 @@ export const make = Effect.gen(function* () {
       developmentLoadRetryIndex = 0;
       window.setTitle(environment.displayName);
       if (environment.platform === "darwin") syncMacosWindowButtons(window);
+      void runPromise(flushPendingOpenThread);
     });
     window.webContents.on(
       "did-fail-load",
@@ -994,6 +1028,22 @@ export const make = Effect.gen(function* () {
       if (command === "reload") webContents.reload();
       else if (command === "forceReload") webContents.reloadIgnoringCache();
       else webContents.toggleDevTools();
+    }),
+    openThread: Effect.fn("desktop.window.openThread")(function* (threadId) {
+      yield* Effect.annotateCurrentSpan({ threadId });
+      const existingWindow = yield* currentMainWindow;
+      if (Option.isNone(existingWindow)) {
+        yield* Ref.set(pendingOpenThreadIdRef, Option.some(threadId));
+        yield* createMainIfBackendReady;
+        const windowAfterBootstrap = yield* currentMainWindow;
+        if (Option.isSome(windowAfterBootstrap)) {
+          sendOpenThreadToWindow(windowAfterBootstrap.value, threadId);
+          yield* Ref.set(pendingOpenThreadIdRef, Option.none());
+        }
+        return;
+      }
+
+      sendOpenThreadToWindow(existingWindow.value, threadId);
     }),
     syncAppearance: Effect.gen(function* () {
       const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
