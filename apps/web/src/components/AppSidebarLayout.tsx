@@ -13,6 +13,7 @@ import { isElectron } from "../env";
 import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { cn, isMacPlatform } from "../lib/utils";
+import { useActiveEnvironmentId, useProjects } from "../state/entities";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
 import {
@@ -28,7 +29,6 @@ import {
   resolveSidebarStageFocusRingOffsetClass,
   useSidebarStageBackdropVariant,
 } from "./SidebarStageBackdrop";
-import { useProjects } from "../state/entities";
 import {
   resolveInitialThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
@@ -143,6 +143,7 @@ function ProjectProjectionRetention() {
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const activeEnvironmentId = useActiveEnvironmentId();
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
@@ -217,6 +218,27 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       unsubscribe?.();
     };
   }, [navigate, pathname]);
+
+  useEffect(() => {
+    const onOpenThread = window.desktopBridge?.onOpenThread;
+    if (typeof onOpenThread !== "function") {
+      return;
+    }
+
+    const unsubscribe = onOpenThread((threadId) => {
+      if (!activeEnvironmentId) {
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: activeEnvironmentId, threadId },
+      });
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [navigate, activeEnvironmentId]);
 
   return (
     <PanelAnimationSuppressionProvider value={panelAnimationsSuppressed}>

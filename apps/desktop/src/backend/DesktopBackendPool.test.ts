@@ -100,6 +100,7 @@ function makePoolLayer(
           dispatchMenuAction: () => Effect.die("unexpected menu action"),
           dispatchSnapShotEvent: () => Effect.void,
           zoomMain: () => Effect.die("unexpected zoom"),
+          openThread: () => Effect.die("unexpected open thread"),
           syncAppearance: Effect.void,
         } satisfies DesktopWindow.DesktopWindow["Service"]),
       ),

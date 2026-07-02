@@ -20,6 +20,7 @@ import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
   MENU_ACTION_CHANNEL,
+  OPEN_THREAD_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
@@ -134,6 +135,7 @@ export class DesktopWindow extends Context.Service<
     // guest page instead of the app UI. The menu routes here to always target
     // the main window.
     readonly zoomMain: (direction: MainWindowZoomDirection) => Effect.Effect<void>;
+    readonly openThread: (threadId: string) => Effect.Effect<void, DesktopWindowError>;
     readonly syncAppearance: Effect.Effect<void>;
   }
 >()("@t3tools/desktop/window/DesktopWindow") {}
@@ -327,6 +329,7 @@ export const make = Effect.gen(function* () {
   // createMainIfBackendReady, which gates the post-readiness window
   // open in development and the macOS "activate without windows" path.
   const backendReadyRef = yield* Ref.make(false);
+  const pendingOpenThreadIdRef = yield* Ref.make<Option.Option<string>>(Option.none());
   // The transient "Connecting to WSL" splash window, tracked separately so it
   // is never mistaken for the real main window.
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
@@ -360,6 +363,36 @@ export const make = Effect.gen(function* () {
 
   const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
   const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+
+  const sendOpenThreadToWindow = (targetWindow: Electron.BrowserWindow, threadId: string) => {
+    const send = () => {
+      if (targetWindow.isDestroyed()) return;
+      targetWindow.webContents.send(OPEN_THREAD_CHANNEL, threadId);
+      void runPromise(electronWindow.reveal(targetWindow));
+    };
+
+    if (targetWindow.webContents.isLoadingMainFrame()) {
+      targetWindow.webContents.once("did-finish-load", send);
+      return;
+    }
+
+    send();
+  };
+
+  const flushPendingOpenThread = Effect.gen(function* () {
+    const pendingThreadId = yield* Ref.getAndSet(pendingOpenThreadIdRef, Option.none());
+    if (Option.isNone(pendingThreadId)) {
+      return;
+    }
+
+    const existingWindow = yield* currentMainWindow;
+    if (Option.isNone(existingWindow)) {
+      yield* Ref.set(pendingOpenThreadIdRef, pendingThreadId);
+      return;
+    }
+
+    sendOpenThreadToWindow(existingWindow.value, pendingThreadId.value);
+  });
 
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
     Electron.BrowserWindow,
@@ -741,6 +774,7 @@ export const make = Effect.gen(function* () {
       developmentLoadRetryIndex = 0;
       window.setTitle(environment.displayName);
       if (environment.platform === "darwin") syncMacosWindowButtons(window);
+      void runPromise(flushPendingOpenThread);
     });
     window.webContents.on(
       "did-fail-load",
@@ -1016,6 +1050,22 @@ export const make = Effect.gen(function* () {
       // the previewed page along with the app UI. The preview browser keeps its
       // own zoom, so put each guest back where the preview left it.
       yield* previewManager.reapplyZoom();
+    }),
+    openThread: Effect.fn("desktop.window.openThread")(function* (threadId) {
+      yield* Effect.annotateCurrentSpan({ threadId });
+      const existingWindow = yield* currentMainWindow;
+      if (Option.isNone(existingWindow)) {
+        yield* Ref.set(pendingOpenThreadIdRef, Option.some(threadId));
+        yield* createMainIfBackendReady;
+        const windowAfterBootstrap = yield* currentMainWindow;
+        if (Option.isSome(windowAfterBootstrap)) {
+          sendOpenThreadToWindow(windowAfterBootstrap.value, threadId);
+          yield* Ref.set(pendingOpenThreadIdRef, Option.none());
+        }
+        return;
+      }
+
+      sendOpenThreadToWindow(existingWindow.value, threadId);
     }),
     syncAppearance: Effect.gen(function* () {
       const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
