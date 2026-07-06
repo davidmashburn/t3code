@@ -24,6 +24,10 @@
 - Desktop packaging includes `apps/server/dist` (the `t3` backend) and starts it on loopback with an auth token for WebSocket/API traffic.
 - Your tester can still open it on macOS by right-clicking the app and choosing **Open** on first launch.
 - To keep staging files for debugging package contents, run: `bun run dist:desktop:dmg -- --keep-stage`
+- To install a freshly built Alpha DMG into `/Applications` and refresh Launch Services:
+  `bun run install:desktop:alpha`
+- To run an end-to-end `t3://thread/<id>` deep-link test on macOS:
+  `bun run test:desktop:deep-link -- --thread-id <thread-id>`
 - To allow code-signing/notarization when configured in CI/secrets, add: `--signed`.
 - Signed macOS builds also require `T3CODE_APPLE_TEAM_ID` and
   `T3CODE_MACOS_PROVISIONING_PROFILE`. The passkey RP domain is derived from
