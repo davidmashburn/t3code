@@ -496,6 +496,7 @@ export interface ChatComposerProps {
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen: boolean;
   gitCwd: string | null;
+  readOnlyReason: string | null;
 
   // Refs the parent needs kept in sync
   promptRef: React.RefObject<string>;
@@ -584,6 +585,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     keybindings,
     terminalOpen,
     gitCwd,
+    readOnlyReason,
     promptRef,
     composerRef,
     composerImagesRef,
@@ -1135,7 +1137,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [activePendingIsResponding, activePendingProgress, activePendingResolvedAnswers],
   );
   const collapsedComposerPrimaryActionDisabled =
-    phase === "running" || isSendBusy || isConnecting || !composerSendState.hasSendableContent;
+    readOnlyReason !== null ||
+    phase === "running" ||
+    isSendBusy ||
+    isConnecting ||
+    !composerSendState.hasSendableContent;
   const collapsedComposerPrimaryActionLabel = "Send message";
   const showMobilePendingAnswerActions =
     isMobileViewport && !isComposerCollapsedMobile && pendingPrimaryAction !== null;
@@ -1921,6 +1927,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       insertTextAtEnd: (text: string) => {
         if (
           text.length === 0 ||
+          readOnlyReason !== null ||
           isConnecting ||
           isComposerApprovalState ||
           pendingUserInputs.length > 0 ||
@@ -2022,6 +2029,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerPreviewAnnotations,
       composerReviewComments,
       isConnecting,
+      readOnlyReason,
       isComposerApprovalState,
       pendingUserInputs.length,
       environmentUnavailable,
@@ -2409,16 +2417,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       ? "Type your own answer, or leave this blank to use the selected option"
                       : showPlanFollowUpPrompt && activeProposedPlan
                         ? "Add feedback to refine the plan, or leave this blank to implement it"
-                        : environmentUnavailable
-                          ? `${environmentUnavailable.label}: ${connectionStatusText(
-                              environmentUnavailable.connection,
-                            )}`
-                          : phase === "disconnected"
-                            ? "Ask for follow-up changes or attach images"
-                            : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                        : readOnlyReason
+                          ? readOnlyReason
+                          : environmentUnavailable
+                            ? `${environmentUnavailable.label}: ${connectionStatusText(
+                                environmentUnavailable.connection,
+                              )}`
+                            : phase === "disconnected"
+                              ? "Ask for follow-up changes or attach images"
+                              : "Ask anything, @tag files/folders, $use skills, or / for commands"
                 }
                 disabled={
                   isConnecting ||
+                  readOnlyReason !== null ||
                   isComposerApprovalState ||
                   (environmentUnavailable !== null && activePendingProgress === null)
                 }
@@ -2546,7 +2557,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   showPlanFollowUpPrompt={pendingUserInputs.length === 0 && showPlanFollowUpPrompt}
                   promptHasText={prompt.trim().length > 0}
                   isSendBusy={isSendBusy}
-                  isConnecting={isConnecting}
+                  isConnecting={isConnecting || readOnlyReason !== null}
                   isEnvironmentUnavailable={environmentUnavailable !== null}
                   isPreparingWorktree={isPreparingWorktree}
                   hasSendableContent={composerSendState.hasSendableContent}

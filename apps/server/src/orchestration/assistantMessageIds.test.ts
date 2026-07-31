@@ -1,5 +1,5 @@
 import { MessageId, TurnId } from "@t3tools/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 
 import { assistantSegmentMessageId } from "./assistantMessageIds.ts";
 

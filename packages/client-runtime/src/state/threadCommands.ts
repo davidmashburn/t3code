@@ -14,6 +14,8 @@ import {
   type SetThreadRuntimeModeInput,
   type StartThreadTurnInput,
   type StopThreadSessionInput,
+  type TakeoverThreadSessionInput,
+  type ReleaseThreadSessionInput,
   type UnarchiveThreadInput,
   type UpdateThreadMetadataInput,
   archiveThread,
@@ -27,6 +29,8 @@ import {
   setThreadRuntimeMode,
   startThreadTurn,
   stopThreadSession,
+  takeoverThreadSession,
+  releaseThreadSession,
   unarchiveThread,
   updateThreadMetadata,
 } from "../operations/commands.ts";
@@ -44,6 +48,8 @@ export type {
   SetThreadRuntimeModeInput,
   StartThreadTurnInput,
   StopThreadSessionInput,
+  TakeoverThreadSessionInput,
+  ReleaseThreadSessionInput,
   UnarchiveThreadInput,
   UpdateThreadMetadataInput,
 } from "../operations/commands.ts";
@@ -133,6 +139,18 @@ export function createThreadEnvironmentAtoms<R, E>(
     stopSession: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:stop-session",
       execute: (input: StopThreadSessionInput) => stopThreadSession(input),
+      scheduler,
+      concurrency,
+    }),
+    takeoverSession: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:takeover-session",
+      execute: (input: TakeoverThreadSessionInput) => takeoverThreadSession(input),
+      scheduler,
+      concurrency,
+    }),
+    releaseSession: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:release-session",
+      execute: (input: ReleaseThreadSessionInput) => releaseThreadSession(input),
       scheduler,
       concurrency,
     }),

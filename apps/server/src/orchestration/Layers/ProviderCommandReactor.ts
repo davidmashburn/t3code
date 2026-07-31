@@ -53,7 +53,9 @@ type ProviderIntentEvent = Extract<
       | "thread.turn-interrupt-requested"
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
-      | "thread.session-stop-requested";
+      | "thread.session-stop-requested"
+      | "thread.session-takeover-requested"
+      | "thread.session-release-requested";
   }
 >;
 
@@ -502,6 +504,8 @@ const make = Effect.gen(function* () {
             providerName: session.provider,
             providerInstanceId: session.providerInstanceId,
             runtimeMode: desiredRuntimeMode,
+            origin: thread.session?.origin ?? "t3",
+            controlMode: thread.session?.controlMode ?? "owned",
             // Provider turn ids are not orchestration turn ids.
             activeTurnId: null,
             lastError: session.lastError ?? null,
@@ -994,11 +998,68 @@ const make = Effect.gen(function* () {
           ? { providerInstanceId: thread.session.providerInstanceId }
           : {}),
         runtimeMode: thread.session?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+        origin: thread.session?.origin ?? "t3",
+        controlMode: thread.session?.controlMode ?? "owned",
         activeTurnId: null,
         lastError: thread.session?.lastError ?? null,
         updatedAt: now,
       },
       createdAt: now,
+    });
+  });
+
+  const processSessionTakeoverRequested = Effect.fn("processSessionTakeoverRequested")(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.session-takeover-requested" }>,
+  ) {
+    const thread = yield* resolveThread(event.payload.threadId);
+    if (
+      !thread?.session ||
+      thread.session.origin !== "external" ||
+      thread.session.controlMode !== "mirrored" ||
+      thread.session.status === "running"
+    ) {
+      return;
+    }
+    yield* ensureSessionForThread(thread.id, event.payload.createdAt);
+    const refreshed = yield* resolveThread(thread.id);
+    if (!refreshed?.session) return;
+    yield* setThreadSession({
+      threadId: thread.id,
+      session: {
+        ...refreshed.session,
+        origin: "external",
+        controlMode: "owned",
+        updatedAt: event.payload.createdAt,
+      },
+      createdAt: event.payload.createdAt,
+    });
+  });
+
+  const processSessionReleaseRequested = Effect.fn("processSessionReleaseRequested")(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.session-release-requested" }>,
+  ) {
+    const thread = yield* resolveThread(event.payload.threadId);
+    if (
+      !thread?.session ||
+      thread.session.origin !== "external" ||
+      thread.session.controlMode !== "owned"
+    ) {
+      return;
+    }
+    if (thread.session.status !== "stopped") {
+      yield* providerService.stopSession({ threadId: thread.id });
+    }
+    yield* setThreadSession({
+      threadId: thread.id,
+      session: {
+        ...thread.session,
+        status: "ready",
+        origin: "external",
+        controlMode: "mirrored",
+        activeTurnId: null,
+        updatedAt: event.payload.createdAt,
+      },
+      createdAt: event.payload.createdAt,
     });
   });
 
@@ -1042,6 +1103,12 @@ const make = Effect.gen(function* () {
       case "thread.session-stop-requested":
         yield* processSessionStopRequested(event);
         return;
+      case "thread.session-takeover-requested":
+        yield* processSessionTakeoverRequested(event);
+        return;
+      case "thread.session-release-requested":
+        yield* processSessionReleaseRequested(event);
+        return;
     }
   });
 
@@ -1068,7 +1135,9 @@ const make = Effect.gen(function* () {
         event.type === "thread.turn-interrupt-requested" ||
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||
-        event.type === "thread.session-stop-requested"
+        event.type === "thread.session-stop-requested" ||
+        event.type === "thread.session-takeover-requested" ||
+        event.type === "thread.session-release-requested"
       ) {
         return yield* worker.enqueue(event);
       }

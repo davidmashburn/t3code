@@ -578,6 +578,24 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.session.takeover":
+    case "thread.session.release": {
+      yield* requireThread({ readModel, command, threadId: command.threadId });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type:
+          command.type === "thread.session.takeover"
+            ? "thread.session-takeover-requested"
+            : "thread.session-release-requested",
+        payload: { threadId: command.threadId, createdAt: command.createdAt },
+      };
+    }
+
     case "thread.session.set": {
       yield* requireThread({
         readModel,
@@ -596,6 +614,30 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           session: command.session,
+        },
+      };
+    }
+
+    case "thread.message.user.observe": {
+      yield* requireThread({ readModel, command, threadId: command.threadId });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.message-sent",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.messageId,
+          role: "user",
+          text: command.text,
+          attachments: [],
+          turnId: command.turnId,
+          streaming: false,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
         },
       };
     }

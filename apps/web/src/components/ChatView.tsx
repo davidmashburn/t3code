@@ -137,7 +137,7 @@ import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import { ChevronDownIcon, TriangleAlertIcon, WifiOffIcon } from "lucide-react";
+import { BotIcon, ChevronDownIcon, TriangleAlertIcon, WifiOffIcon } from "lucide-react";
 import { cn, randomHex } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -1017,6 +1017,12 @@ function ChatViewContent(props: ChatViewProps) {
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
+  const takeoverThreadSession = useAtomCommand(threadEnvironment.takeoverSession, {
+    reportFailure: false,
+  });
+  const releaseThreadSession = useAtomCommand(threadEnvironment.releaseSession, {
+    reportFailure: false,
+  });
   const respondToThreadApproval = useAtomCommand(threadEnvironment.respondToApproval, {
     reportFailure: false,
   });
@@ -1656,8 +1662,63 @@ function ChatViewContent(props: ChatViewProps) {
     hasMultipleRegisteredEnvironments && activeThread
       ? `${environmentById.get(activeThread.environmentId)?.label ?? serverConfig?.environment.label ?? activeThread.environmentId} server`
       : "server";
+  const isMirroredClaudeSession =
+    activeThread?.session?.origin === "external" && activeThread.session.controlMode === "mirrored";
+  const isOwnedExternalClaudeSession =
+    activeThread?.session?.origin === "external" && activeThread.session.controlMode === "owned";
+  const mirroredSessionReadOnlyReason = isMirroredClaudeSession
+    ? "This Claude Code session is mirrored read-only"
+    : null;
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const items: ComposerBannerStackItem[] = [];
+    if (isMirroredClaudeSession && activeThread) {
+      items.push({
+        id: `claude-mirror:${activeThread.id}`,
+        variant: "info",
+        icon: <BotIcon />,
+        title: "Live Claude Code session",
+        description:
+          activeThread.session?.status === "running"
+            ? "Read-only while Claude Code is working. Close or stop the terminal session before taking control in T3."
+            : "Read-only while Claude Code owns this session. Close its terminal before taking control in T3.",
+        actions: (
+          <Button
+            size="xs"
+            disabled={activeThread.session?.status === "running"}
+            onClick={() =>
+              void takeoverThreadSession({
+                environmentId,
+                input: { threadId: activeThread.id },
+              })
+            }
+          >
+            Take over in T3
+          </Button>
+        ),
+      });
+    } else if (isOwnedExternalClaudeSession && activeThread) {
+      items.push({
+        id: `claude-owned:${activeThread.id}`,
+        variant: "info",
+        icon: <BotIcon />,
+        title: "T3 controls this Claude session",
+        description: "Release it before resuming the same session from Claude Code.",
+        actions: (
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() =>
+              void releaseThreadSession({
+                environmentId,
+                input: { threadId: activeThread.id },
+              })
+            }
+          >
+            Release to Claude Code
+          </Button>
+        ),
+      });
+    }
     if (activeEnvironmentUnavailableState) {
       const connection = activeEnvironmentUnavailableState.connection;
       const isReconnecting =
@@ -1716,12 +1777,18 @@ function ChatViewContent(props: ChatViewProps) {
     return items;
   }, [
     activeEnvironmentUnavailableState,
+    activeThread,
+    environmentId,
     handleReconnectActiveEnvironment,
     navigate,
+    isMirroredClaudeSession,
+    isOwnedExternalClaudeSession,
+    releaseThreadSession,
     showVersionMismatchBanner,
     versionMismatch,
     versionMismatchDismissKey,
     versionMismatchServerLabel,
+    takeoverThreadSession,
   ]);
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
   const unlockedSelectedProvider = resolveSelectableProvider(
@@ -5295,6 +5362,7 @@ function ChatViewContent(props: ChatViewProps) {
                       keybindings={keybindings}
                       terminalOpen={Boolean(terminalUiState.terminalOpen)}
                       gitCwd={gitCwd}
+                      readOnlyReason={mirroredSessionReadOnlyReason}
                       promptRef={promptRef}
                       composerImagesRef={composerImagesRef}
                       composerTerminalContextsRef={composerTerminalContextsRef}

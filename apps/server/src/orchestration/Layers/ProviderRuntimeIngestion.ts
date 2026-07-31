@@ -1356,6 +1356,8 @@ const make = Effect.gen(function* () {
                 ? { providerInstanceId: event.providerInstanceId }
                 : {}),
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
+              origin: thread.session?.origin ?? "t3",
+              controlMode: thread.session?.controlMode ?? "owned",
               activeTurnId: nextActiveTurnId,
               lastError,
               updatedAt: now,
