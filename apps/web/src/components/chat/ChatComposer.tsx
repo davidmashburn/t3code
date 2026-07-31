@@ -112,6 +112,7 @@ import {
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { resolveContextWindowModelDisplayName } from "./ContextWindowMeter.logic";
+import { ProviderUsageMeter } from "../ProviderUsage";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
@@ -420,6 +421,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   compact: boolean;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
   activeThreadModelDisplayName: string | null;
+  providerUsage: ServerProvider["usage"] | null;
+  providerUsageDisplayName: string | null;
   isPreparingWorktree: boolean;
   pendingAction: {
     questionIndex: number;
@@ -448,6 +451,12 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         <ContextWindowMeter
           usage={props.activeContextWindow}
           modelDisplayName={props.activeThreadModelDisplayName}
+        />
+      ) : null}
+      {props.providerUsage && props.providerUsage.windows.length > 0 ? (
+        <ProviderUsageMeter
+          usage={props.providerUsage}
+          providerDisplayName={props.providerUsageDisplayName}
         />
       ) : null}
       {props.isPreparingWorktree ? (
@@ -3363,6 +3372,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     compact={isComposerPrimaryActionsCompact}
                     activeContextWindow={activeContextWindow}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
+                    providerUsage={selectedProviderStatus?.usage ?? null}
+                    providerUsageDisplayName={selectedProviderStatus?.displayName ?? null}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}
                     showPlanFollowUpPrompt={

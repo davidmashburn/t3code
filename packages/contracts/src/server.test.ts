@@ -45,6 +45,35 @@ describe("ServerProvider", () => {
     expect(parsed.skills).toEqual([]);
     expect(parsed.versionAdvisory).toBeUndefined();
     expect(parsed.updateState).toBeUndefined();
+    expect(parsed.usage).toBeUndefined();
+  });
+
+  it("decodes provider-neutral account usage windows", () => {
+    const parsed = decodeServerProvider({
+      instanceId: "codex",
+      driver: "codex",
+      enabled: true,
+      installed: true,
+      version: "1.0.0",
+      status: "ready",
+      auth: { status: "authenticated" },
+      checkedAt: "2026-04-10T00:00:00.000Z",
+      models: [],
+      usage: {
+        windows: [
+          {
+            id: "codex:primary",
+            label: "5-hour limit",
+            usedPercent: 42,
+            durationMinutes: 300,
+            resetsAt: "2026-04-10T05:00:00.000Z",
+          },
+        ],
+        updatedAt: "2026-04-10T00:00:00.000Z",
+      },
+    });
+
+    expect(parsed.usage?.windows[0]?.usedPercent).toBe(42);
   });
 
   it("defaults one-click update support when decoding older advisory snapshots", () => {
