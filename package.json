@@ -36,6 +36,7 @@
     "install:desktop:alpha": "node scripts/install-desktop-alpha.ts",
     "test:desktop:deep-link": "node scripts/test-thread-deep-link.ts",
     "release:smoke": "node scripts/release-smoke.ts",
+    "update:local": "bash scripts/update-local.sh",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
     "sync:repos": "node scripts/sync-reference-repos.ts"
   },
