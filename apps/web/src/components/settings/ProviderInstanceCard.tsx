@@ -48,6 +48,7 @@ import { ProviderInstanceIcon, providerInstanceInitials } from "../chat/Provider
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
+import { ProviderUsageDetails } from "../ProviderUsage";
 import {
   getProviderVersionAdvisoryPresentation,
   PROVIDER_STATUS_STYLES,
@@ -618,7 +619,7 @@ export function ProviderInstanceCard({
             aria-pressed={selected}
           />
           {titleIconNode}
-          <span className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-2">
               <span className="truncate text-sm font-medium text-foreground">{displayName}</span>
               {String(instanceId) !== String(instance.driver) ? (
@@ -668,7 +669,13 @@ export function ProviderInstanceCard({
                 {needsAttention && summary.detail ? ` · ${summary.detail}` : null}
               </span>
             </span>
-          </span>
+            {liveProvider?.usage ? (
+              <div className="mt-3 max-w-md rounded-md border border-border/60 bg-muted/20 p-3">
+                <p className="mb-2 text-[11px] font-semibold text-foreground">Account usage</p>
+                <ProviderUsageDetails usage={liveProvider.usage} />
+              </div>
+            ) : null}
+          </div>
         </div>
         <span className="flex h-5 shrink-0 items-center">
           <Switch

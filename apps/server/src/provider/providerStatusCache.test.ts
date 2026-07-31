@@ -133,6 +133,10 @@ it.layer(NodeServices.layer)("providerStatusCache", (it) => {
         },
       ],
       message: "Cached message",
+      usage: {
+        windows: [{ id: "codex:primary", label: "5-hour limit", usedPercent: 35 }],
+        updatedAt: "2026-04-10T12:00:00.000Z",
+      },
       skills: [
         {
           name: "github:gh-fix-ci",
@@ -174,6 +178,7 @@ it.layer(NodeServices.layer)("providerStatusCache", (it) => {
         version: cachedCodex.version,
         status: cachedCodex.status,
         auth: cachedCodex.auth,
+        usage: cachedCodex.usage,
         checkedAt: cachedCodex.checkedAt,
         slashCommands: cachedCodex.slashCommands,
         skills: cachedCodex.skills,

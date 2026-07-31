@@ -296,6 +296,7 @@ import {
   subscribeToPendingSnapShotAnimations,
 } from "../../lib/snapShotAnimation";
 import { resizeSnapShotSource } from "../../lib/snapShotSource";
+import { ProviderUsageMeter } from "../ProviderUsage";
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import {
@@ -1151,6 +1152,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   activeContextWindow: ContextWindowSnapshot | null;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
+  providerUsage: ServerProvider["usage"] | null;
+  providerUsageDisplayName: string | null;
   isPreparingWorktree: boolean;
   pendingAction: {
     questionIndex: number;
@@ -1187,6 +1190,15 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         />
       ) : props.reserveContextWindowMeter ? (
         <ContextWindowMeterPlaceholder />
+      ) : null}
+      {props.providerUsage && props.providerUsage.windows.length > 0 ? (
+        <ProviderUsageMeter
+          usage={props.providerUsage}
+          providerDisplayName={props.providerUsageDisplayName}
+        />
+      ) : null}
+      {props.isPreparingWorktree ? (
+        <span className="text-secondary-label text-xs">Preparing worktree...</span>
       ) : null}
       <ComposerPrimaryActions
         compact={props.compact}
@@ -6828,6 +6840,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
+                    providerUsage={selectedProviderStatus?.usage ?? null}
+                    providerUsageDisplayName={selectedProviderStatus?.displayName ?? null}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}
                     showPlanFollowUpPrompt={
