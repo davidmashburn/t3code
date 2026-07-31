@@ -61,6 +61,35 @@ export const ServerProviderAuth = Schema.Struct({
 });
 export type ServerProviderAuth = typeof ServerProviderAuth.Type;
 
+export const ServerProviderUsageWindow = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  usedPercent: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
+  durationMinutes: Schema.optional(PositiveInt),
+  resetsAt: Schema.optional(IsoDateTime),
+});
+export type ServerProviderUsageWindow = typeof ServerProviderUsageWindow.Type;
+
+export const ServerProviderUsageCredits = Schema.Struct({
+  hasCredits: Schema.Boolean,
+  unlimited: Schema.Boolean,
+  balance: Schema.optional(TrimmedNonEmptyString),
+});
+export type ServerProviderUsageCredits = typeof ServerProviderUsageCredits.Type;
+
+/**
+ * Provider-neutral account usage snapshot. Providers may expose one or more
+ * rolling quota windows; clients should render the windows they receive and
+ * avoid assigning provider-specific meaning to their ordering.
+ */
+export const ServerProviderUsage = Schema.Struct({
+  windows: Schema.Array(ServerProviderUsageWindow),
+  credits: Schema.optional(ServerProviderUsageCredits),
+  limitReached: Schema.optional(TrimmedNonEmptyString),
+  updatedAt: IsoDateTime,
+});
+export type ServerProviderUsage = typeof ServerProviderUsage.Type;
+
 export const ServerProviderModel = Schema.Struct({
   slug: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
@@ -176,6 +205,7 @@ export const ServerProvider = Schema.Struct({
   version: Schema.NullOr(TrimmedNonEmptyString),
   status: ServerProviderState,
   auth: ServerProviderAuth,
+  usage: Schema.optional(ServerProviderUsage),
   checkedAt: IsoDateTime,
   message: Schema.optional(TrimmedNonEmptyString),
   // Optional for back-compat: every legacy producer omits this field and

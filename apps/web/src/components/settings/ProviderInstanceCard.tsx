@@ -44,6 +44,7 @@ import { ProviderModelsSection } from "./ProviderModelsSection";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
+import { ProviderUsageDetails } from "../ProviderUsage";
 import {
   getProviderVersionAdvisoryPresentation,
   PROVIDER_STATUS_STYLES,
@@ -704,6 +705,12 @@ export function ProviderInstanceCard({
               {titleTailNode}
             </div>
             {authRowNode}
+            {liveProvider?.usage ? (
+              <div className="mt-3 max-w-md rounded-md border border-border/60 bg-muted/20 p-3">
+                <p className="mb-2 text-[11px] font-semibold text-foreground">Account usage</p>
+                <ProviderUsageDetails usage={liveProvider.usage} />
+              </div>
+            ) : null}
           </div>
           <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
             <Button

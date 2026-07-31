@@ -21,6 +21,8 @@ import type {
   ProviderOptionDescriptor,
   ServerProviderModel,
   ServerProviderSkill,
+  ServerProviderUsage,
+  ServerProviderUsageWindow,
 } from "@t3tools/contracts";
 import { PREFERRED_DEFAULT_CODEX_MODELS, ServerSettingsError } from "@t3tools/contracts";
 
@@ -45,6 +47,7 @@ const CODEX_PRESENTATION = {
 
 export interface CodexAppServerProviderSnapshot {
   readonly account: CodexSchema.V2GetAccountResponse;
+  readonly usage?: ServerProviderUsage;
   readonly version: string | undefined;
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
@@ -66,6 +69,121 @@ const CURRENT_CODEX_MODELS = new Set(["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-
 
 export function isLegacyCodexModel(model: string): boolean {
   return !CURRENT_CODEX_MODELS.has(model);
+}
+
+type CodexRateLimitSnapshot = CodexSchema.V2GetAccountRateLimitsResponse["rateLimits"];
+
+function formatUsageWindowDuration(durationMinutes: number | null | undefined): string | null {
+  if (!durationMinutes || durationMinutes <= 0) return null;
+  if (durationMinutes === 7 * 24 * 60) return "Weekly limit";
+  if (durationMinutes % (24 * 60) === 0) return `${durationMinutes / (24 * 60)}-day limit`;
+  if (durationMinutes % 60 === 0) return `${durationMinutes / 60}-hour limit`;
+  return `${durationMinutes}-minute limit`;
+}
+
+function usageResetAt(epochSeconds: number | null | undefined): string | undefined {
+  if (!epochSeconds || epochSeconds <= 0) return undefined;
+  return DateTime.make(epochSeconds * 1_000).pipe(
+    Option.match({ onNone: () => undefined, onSome: DateTime.formatIso }),
+  );
+}
+
+function normalizeUsageWindow(input: {
+  readonly id: string;
+  readonly bucketLabel?: string | null;
+  readonly fallbackLabel: string;
+  readonly window: CodexSchema.V2GetAccountRateLimitsResponse__RateLimitWindow;
+}): ServerProviderUsageWindow {
+  const durationLabel = formatUsageWindowDuration(input.window.windowDurationMins);
+  const windowLabel = durationLabel ?? input.fallbackLabel;
+  const bucketLabel = input.bucketLabel?.trim();
+  const resetsAt = usageResetAt(input.window.resetsAt);
+  return {
+    id: input.id,
+    label: bucketLabel ? `${bucketLabel} · ${windowLabel}` : windowLabel,
+    usedPercent: Math.max(0, Math.min(100, input.window.usedPercent)),
+    ...(input.window.windowDurationMins && input.window.windowDurationMins > 0
+      ? { durationMinutes: input.window.windowDurationMins }
+      : {}),
+    ...(resetsAt ? { resetsAt } : {}),
+  };
+}
+
+function normalizeUsageBucket(
+  bucketId: string,
+  bucket: CodexRateLimitSnapshot,
+  includeBucketLabel: boolean,
+): ReadonlyArray<ServerProviderUsageWindow> {
+  const bucketLabel = includeBucketLabel ? (bucket.limitName ?? bucketId) : null;
+  const windows: ServerProviderUsageWindow[] = [];
+  if (bucket.primary) {
+    windows.push(
+      normalizeUsageWindow({
+        id: `${bucketId}:primary`,
+        bucketLabel,
+        fallbackLabel: "Primary limit",
+        window: bucket.primary,
+      }),
+    );
+  }
+  if (bucket.secondary) {
+    windows.push(
+      normalizeUsageWindow({
+        id: `${bucketId}:secondary`,
+        bucketLabel,
+        fallbackLabel: "Secondary limit",
+        window: bucket.secondary,
+      }),
+    );
+  }
+  if (bucket.individualLimit) {
+    const resetsAt = usageResetAt(bucket.individualLimit.resetsAt);
+    windows.push({
+      id: `${bucketId}:spend`,
+      label: bucketLabel ? `${bucketLabel} · Spend limit` : "Spend limit",
+      usedPercent: Math.max(0, Math.min(100, 100 - bucket.individualLimit.remainingPercent)),
+      ...(resetsAt ? { resetsAt } : {}),
+    });
+  }
+  return windows;
+}
+
+export function normalizeCodexRateLimits(
+  response: CodexSchema.V2GetAccountRateLimitsResponse,
+  updatedAt: string,
+): ServerProviderUsage | undefined {
+  const bucketsById = response.rateLimitsByLimitId
+    ? Object.entries(response.rateLimitsByLimitId)
+    : [];
+  const buckets: ReadonlyArray<readonly [string, CodexRateLimitSnapshot]> =
+    bucketsById.length > 0
+      ? bucketsById
+      : [[response.rateLimits.limitId?.trim() || "codex", response.rateLimits]];
+  const windows = buckets.flatMap(([bucketId, bucket]) =>
+    normalizeUsageBucket(bucketId, bucket, buckets.length > 1),
+  );
+  const metadataBucket = buckets.find(
+    ([, bucket]) => bucket.credits || bucket.rateLimitReachedType,
+  )?.[1];
+  const credits = metadataBucket?.credits ?? response.rateLimits.credits;
+  const limitReached =
+    metadataBucket?.rateLimitReachedType ?? response.rateLimits.rateLimitReachedType;
+
+  if (windows.length === 0 && !credits && !limitReached) return undefined;
+  return {
+    windows,
+    ...(credits
+      ? {
+          credits: {
+            hasCredits: credits.hasCredits,
+            unlimited: credits.unlimited,
+            ...(credits.balance?.trim() ? { balance: credits.balance.trim() } : {}),
+          },
+        }
+      : {}),
+    ...(limitReached ? { limitReached } : {}),
+    updatedAt,
+  };
 }
 
 function reasoningEffortLabel(reasoningEffort: string): string {
@@ -395,18 +513,27 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     } satisfies CodexAppServerProviderSnapshot;
   }
 
-  const [skillsResponse, models] = yield* Effect.all(
+  const [skillsResponse, models, rateLimits] = yield* Effect.all(
     [
       client.request("skills/list", {
         cwds: [input.cwd],
       }),
       requestAllCodexModels(client),
+      accountResponse.account?.type === "chatgpt"
+        ? client.request("account/rateLimits/read", undefined).pipe(Effect.option)
+        : Effect.succeed(Option.none<CodexSchema.V2GetAccountRateLimitsResponse>()),
     ],
     { concurrency: "unbounded" },
   );
 
+  const usageUpdatedAt = DateTime.formatIso(yield* DateTime.now);
+  const usage = Option.flatMap(rateLimits, (value) =>
+    Option.fromNullishOr(normalizeCodexRateLimits(value, usageUpdatedAt)),
+  );
+
   return {
     account: accountResponse,
+    ...(Option.isSome(usage) ? { usage: usage.value } : {}),
     version,
     models: applyPreferredCodexDefaultModel(
       appendCustomCodexModels(models, input.customModels ?? []),
@@ -606,6 +733,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       version: snapshot.version ?? null,
       status: accountStatus.status,
       auth: accountStatus.auth,
+      ...(snapshot.usage ? { usage: snapshot.usage } : {}),
       ...(accountStatus.message ? { message: accountStatus.message } : {}),
     },
   });
