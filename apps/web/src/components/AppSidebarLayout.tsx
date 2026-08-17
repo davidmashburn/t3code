@@ -14,7 +14,6 @@ import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalSt
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { cn, isMacPlatform } from "../lib/utils";
 import { useActiveEnvironmentId } from "../state/entities";
-import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
 import LegacyThreadSidebar from "./LegacySidebar";
 import { primaryServerConfigAtom, primaryServerKeybindingsAtom } from "../state/server";
