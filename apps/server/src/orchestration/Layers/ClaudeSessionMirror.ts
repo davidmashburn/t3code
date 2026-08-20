@@ -46,6 +46,7 @@ interface TranscriptState {
   offset: number;
   threadId?: ThreadId;
   turnId?: TurnId;
+  turnHasAssistantText: boolean;
   cwd?: string;
   lastAssistantUuid?: string;
   turnCount: number;
@@ -186,6 +187,7 @@ const make = Effect.gen(function* () {
       if (action.type === "user") {
         const turnId = TurnId.make(stableId("claude-turn", line.sessionId, line.uuid));
         state.turnId = turnId;
+        state.turnHasAssistantText = false;
         state.turnCount += 1;
         yield* engine.dispatch({
           type: "thread.message.user.observe",
@@ -225,6 +227,7 @@ const make = Effect.gen(function* () {
           delta: action.text,
           createdAt,
         });
+        state.turnHasAssistantText = true;
       } else if (action.type === "tool-use" && state.turnId) {
         yield* engine.dispatch({
           type: "thread.activity.append",
@@ -267,14 +270,22 @@ const make = Effect.gen(function* () {
         });
       } else if (action.type === "turn-end" && state.turnId) {
         const completedTurnId = state.turnId;
-        yield* engine.dispatch({
-          type: "thread.message.assistant.complete",
-          commandId: commandId(state.instanceId, line.uuid, "assistant-complete"),
-          threadId,
-          messageId: MessageId.make(stableId("claude-assistant", completedTurnId)),
-          turnId: completedTurnId,
-          createdAt,
-        });
+        // Claude splits one assistant message across several transcript records
+        // (thinking, then text, then tool calls) and stamps every one of them with
+        // the message's final stop_reason. Completing on the first record would
+        // publish an empty message and drop the text record that follows, so only
+        // complete once the turn has actually produced text, and keep the turn open
+        // for the remaining records. The next user message starts the next turn.
+        if (state.turnHasAssistantText) {
+          yield* engine.dispatch({
+            type: "thread.message.assistant.complete",
+            commandId: commandId(state.instanceId, line.uuid, "assistant-complete"),
+            threadId,
+            messageId: MessageId.make(stableId("claude-assistant", completedTurnId)),
+            turnId: completedTurnId,
+            createdAt,
+          });
+        }
         yield* engine.dispatch({
           type: "thread.session.set",
           commandId: commandId(state.instanceId, line.uuid, "ready"),
@@ -293,7 +304,6 @@ const make = Effect.gen(function* () {
           },
           createdAt,
         });
-        delete state.turnId;
       } else if (action.type === "title") {
         yield* engine.dispatch({
           type: "thread.meta.update",
@@ -323,7 +333,13 @@ const make = Effect.gen(function* () {
     path: string,
   ) {
     const key = `${instanceId}\0${path}`;
-    const state = states.get(key) ?? { instanceId, path, offset: 0, turnCount: 0 };
+    const state = states.get(key) ?? {
+      instanceId,
+      path,
+      offset: 0,
+      turnCount: 0,
+      turnHasAssistantText: false,
+    };
     states.set(key, state);
     const content = yield* Effect.tryPromise(() => NodeFSP.readFile(path, "utf8"));
     if (content.length < state.offset) state.offset = 0;
