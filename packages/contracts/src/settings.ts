@@ -1321,7 +1321,9 @@ const ClaudeSettingsPatch = Schema.Struct({
   autoCompactWindow: Schema.optionalKey(
     TrimmedString.check(Schema.isPattern(CLAUDE_AUTO_COMPACT_WINDOW_PATTERN)),
   ),
-  mirrorExternalSessions: Schema.optionalKey(Schema.Boolean),
+  // `Schema.optional` (not `optionalKey`): the source setting is itself optional, so patches
+  // must accept an explicit `undefined` under exactOptionalPropertyTypes.
+  mirrorExternalSessions: Schema.optional(Schema.Boolean),
 });
 
 const CursorSettingsPatch = Schema.Struct({
