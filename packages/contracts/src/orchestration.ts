@@ -616,12 +616,20 @@ export const OrchestrationSessionStatus = Schema.Literals([
 ]);
 export type OrchestrationSessionStatus = typeof OrchestrationSessionStatus.Type;
 
+export const OrchestrationSessionOrigin = Schema.Literals(["t3", "external"]);
+export type OrchestrationSessionOrigin = typeof OrchestrationSessionOrigin.Type;
+
+export const OrchestrationSessionControlMode = Schema.Literals(["owned", "mirrored"]);
+export type OrchestrationSessionControlMode = typeof OrchestrationSessionControlMode.Type;
+
 export const OrchestrationSession = Schema.Struct({
   threadId: ThreadId,
   status: OrchestrationSessionStatus,
   providerName: Schema.NullOr(TrimmedNonEmptyString),
   providerInstanceId: Schema.optional(ProviderInstanceId),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
+  origin: Schema.optional(OrchestrationSessionOrigin),
+  controlMode: Schema.optional(OrchestrationSessionControlMode),
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
   updatedAt: IsoDateTime,
@@ -1424,6 +1432,20 @@ const ThreadSessionStopCommand = Schema.Struct({
   onlyIfSettled: Schema.optional(Schema.Boolean),
 });
 
+const ThreadSessionTakeoverCommand = Schema.Struct({
+  type: Schema.Literal("thread.session.takeover"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
+const ThreadSessionReleaseCommand = Schema.Struct({
+  type: Schema.Literal("thread.session.release"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -1454,6 +1476,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadCheckpointRevertCommand,
   ThreadConversationRevertCommand,
   ThreadSessionStopCommand,
+  ThreadSessionTakeoverCommand,
+  ThreadSessionReleaseCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -1488,6 +1512,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadCheckpointRevertCommand,
   ThreadConversationRevertCommand,
   ThreadSessionStopCommand,
+  ThreadSessionTakeoverCommand,
+  ThreadSessionReleaseCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -1496,6 +1522,16 @@ const ThreadSessionSetCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   session: OrchestrationSession,
+  createdAt: IsoDateTime,
+});
+
+const ThreadMessageUserObserveCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.user.observe"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  text: Schema.String,
+  turnId: TurnId,
   createdAt: IsoDateTime,
 });
 
@@ -1663,6 +1699,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,
   ThreadSessionSetCommand,
+  ThreadMessageUserObserveCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
   ThreadMessageReasoningDeltaCommand,
@@ -1717,6 +1754,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.checkpoint-revert-requested",
   "thread.reverted",
   "thread.session-stop-requested",
+  "thread.session-takeover-requested",
+  "thread.session-release-requested",
   "thread.session-set",
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
@@ -1974,6 +2013,9 @@ export const ThreadSessionStopRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadSessionTakeoverRequestedPayload = ThreadSessionStopRequestedPayload;
+export const ThreadSessionReleaseRequestedPayload = ThreadSessionStopRequestedPayload;
+
 export const ThreadSessionSetPayload = Schema.Struct({
   threadId: ThreadId,
   session: OrchestrationSession,
@@ -2186,6 +2228,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.session-stop-requested"),
     payload: ThreadSessionStopRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.session-takeover-requested"),
+    payload: ThreadSessionTakeoverRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.session-release-requested"),
+    payload: ThreadSessionReleaseRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
