@@ -157,6 +157,7 @@ import {
 } from "../markdown-links";
 import { readLocalApi } from "../localApi";
 import { useAssetUrlRefresh, useAssetUrlState } from "../assets/assetUrls";
+import { highlightHtml } from "../lib/searchHighlight";
 import { cn } from "../lib/utils";
 import { useRemoteOpenResolution, type RemoteOpenMode } from "../remoteOpen";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -211,6 +212,7 @@ interface ChatMarkdownProps {
   lineBreaks?: boolean;
   /** Parse sanitized raw HTML instead of displaying its source text. */
   parseRawHtml?: boolean;
+  searchQuery?: string;
   /** Append a prompt that invokes a newly created artifact-template skill. */
   onUseArtifactTemplate?: ((template: CodexArtifactTemplate) => void) | undefined;
   /** Directory that anchors relative links and images; defaults to `cwd`. Set
@@ -459,11 +461,13 @@ function rehypePreserveImageSourceMeta() {
 
 const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
   ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), "mark"],
   attributes: {
     ...defaultSchema.attributes,
     "*": (defaultSchema.attributes?.["*"] ?? []).filter((attribute) => attribute !== "title"),
     code: [...(defaultSchema.attributes?.code ?? []), "dataCodeMeta", "dataInlineCode"],
     blockquote: [...(defaultSchema.attributes?.blockquote ?? []), "dataAlert"],
+    mark: ["className", "class"],
     div: [...(defaultSchema.attributes?.div ?? []), ...CODEX_ARTIFACT_TEMPLATE_HAST_PROPERTIES],
     a: [...(defaultSchema.attributes?.a ?? []), "dataPullRequestAutolink"],
     img: [
@@ -2711,6 +2715,9 @@ function markdownHeadingRenderer(level: 1 | 2 | 3 | 4 | 5 | 6) {
 
 // Keep component types stable when streaming changes the message state.
 const CHAT_MARKDOWN_COMPONENTS = {
+  mark: function MarkdownSearchHighlight({ children }) {
+    return <mark className="search-highlight">{children}</mark>;
+  },
   h1: markdownHeadingRenderer(1),
   h2: markdownHeadingRenderer(2),
   h3: markdownHeadingRenderer(3),
@@ -3223,6 +3230,7 @@ function ChatMarkdown({
   className,
   lineBreaks = false,
   parseRawHtml = true,
+  searchQuery,
   extraRemarkPlugins = EMPTY_REMARK_PLUGINS,
   ...props
 }: ChatMarkdownProps) {
@@ -3234,6 +3242,10 @@ function ChatMarkdown({
     localMediaPreview,
     setLocalMediaPreview,
   } = useChatMarkdownState({ text, ...props });
+  const highlightedText = useMemo(
+    () => (searchQuery ? highlightHtml(text, searchQuery) : text),
+    [searchQuery, text],
+  );
   const incrementalParsing =
     props.isStreaming === true &&
     extraRemarkPlugins.length === 0 &&
@@ -3269,7 +3281,7 @@ function ChatMarkdown({
           components={CHAT_MARKDOWN_COMPONENTS}
           urlTransform={markdownUrlTransform}
         >
-          {text}
+          {highlightedText}
         </ReactMarkdown>
       </ChatMarkdownRendererContext>
       {localMediaPreview ? (

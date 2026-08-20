@@ -144,6 +144,10 @@ DMGs default to the host architecture. Use `--arch` to choose another target and
 to retain packaging files for inspection. Run `vp run dist:desktop:artifact --help` for other
 options.
 
+To install a freshly built Alpha DMG into `/Applications` and refresh Launch Services, run
+`vp run install:desktop:alpha`. To run an end-to-end `t3://thread/<id>` deep-link test on macOS,
+run `vp run test:desktop:deep-link -- --thread-id <thread-id>`.
+
 ### Linux AppImage prerequisites
 
 Build on Linux because the browser-secret helper links against the host's libsecret. Install

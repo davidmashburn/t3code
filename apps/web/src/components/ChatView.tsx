@@ -354,8 +354,10 @@ import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
+import { FindInThread } from "./chat/FindInThread";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import { findAllMatches, type TextMatch } from "../lib/searchHighlight";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { resolveTimelineIsAtEnd, worktreeSetupAgentStarted } from "./chat/MessagesTimeline.logic";
 import { resolveComposerTimelineInset, resolveScrollToEndClearance } from "./composerFooterLayout";
@@ -1701,6 +1703,9 @@ export default function ChatView(props: ChatViewProps) {
   const isRevertingCheckpoint = useComposerDraftStore((store) =>
     store.rewindingThreadKeys.has(routeThreadKey),
   );
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findActiveMatchIndex, setFindActiveMatchIndex] = useState(0);
   const [maximizedRightPanelThreadKey, setMaximizedRightPanelThreadKey] = useState<string | null>(
     null,
   );
@@ -3495,6 +3500,58 @@ export default function ChatView(props: ChatViewProps) {
     rememberedForActive: peekRememberedThreadTimeline<typeof timelineEntries>(activeThreadKey),
   });
   const displayedTimelineKey = displayedTimeline.displayThreadKey ?? routeThreadKey;
+  const findMatches = useMemo(() => {
+    if (!findQuery || !findOpen) return [];
+    const results: Array<{ messageId: string; match: TextMatch }> = [];
+    for (const entry of displayedTimeline.entries) {
+      if (entry.kind !== "message") continue;
+      for (const match of findAllMatches(entry.message.text ?? "", findQuery)) {
+        results.push({ messageId: entry.message.id, match });
+      }
+    }
+    return results;
+  }, [displayedTimeline.entries, findOpen, findQuery]);
+  const findTotalMatches = findMatches.length;
+  const findMessageIdByMatchIndex = useMemo(
+    () => findMatches.map((match) => match.messageId),
+    [findMatches],
+  );
+  const scrollToFindMatch = useCallback((messageId: string | undefined) => {
+    if (!messageId) return;
+    document
+      .querySelector(`[data-message-id="${messageId}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+  const handleFindNext = useCallback(() => {
+    if (findTotalMatches === 0) return;
+    setFindActiveMatchIndex((index) => {
+      const next = Math.min(index + 1, findTotalMatches - 1);
+      scrollToFindMatch(findMessageIdByMatchIndex[next]);
+      return next;
+    });
+  }, [findMessageIdByMatchIndex, findTotalMatches, scrollToFindMatch]);
+  const handleFindPrevious = useCallback(() => {
+    if (findTotalMatches === 0) return;
+    setFindActiveMatchIndex((index) => {
+      const next = Math.max(index - 1, 0);
+      scrollToFindMatch(findMessageIdByMatchIndex[next]);
+      return next;
+    });
+  }, [findMessageIdByMatchIndex, findTotalMatches, scrollToFindMatch]);
+  const openFind = useCallback(() => {
+    setFindOpen(true);
+    setFindQuery("");
+    setFindActiveMatchIndex(0);
+  }, []);
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setFindQuery("");
+    setFindActiveMatchIndex(0);
+  }, []);
+  const handleFindQueryChange = useCallback((query: string) => {
+    setFindQuery(query);
+    setFindActiveMatchIndex(0);
+  }, []);
   const paintOnlyDisplayedTimeline = isPaintOnlyThreadTimeline(
     displayedTimeline.displayThreadKey,
     activeThreadKey,
@@ -6568,6 +6625,29 @@ export default function ChatView(props: ChatViewProps) {
 
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+
+      if (findOpen && event.key === "Escape" && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeFind();
+        return;
+      }
+
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "f" &&
+        !event.shiftKey &&
+        !event.altKey
+      ) {
+        if (isCommandPaletteOpen() || !activeThreadId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (findOpen) closeFind();
+        else openFind();
+        return;
+      }
+
       if (preventRepeatedTerminalCloseShortcut(event, keybindings)) {
         event.stopPropagation();
         return;
@@ -6849,6 +6929,9 @@ export default function ChatView(props: ChatViewProps) {
     toggleRightPanelMaximized,
     toggleTerminalVisibility,
     composerRef,
+    findOpen,
+    closeFind,
+    openFind,
   ]);
 
   // Paste-to-focus: the resting composer blurs on a click into the timeline,
@@ -9438,6 +9521,17 @@ export default function ChatView(props: ChatViewProps) {
             </div>
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+              {findOpen ? (
+                <FindInThread
+                  query={findQuery}
+                  onQueryChange={handleFindQueryChange}
+                  matchIndex={findActiveMatchIndex}
+                  totalMatches={findTotalMatches}
+                  onNext={handleFindNext}
+                  onPrevious={handleFindPrevious}
+                  onClose={closeFind}
+                />
+              ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
@@ -9521,6 +9615,9 @@ export default function ChatView(props: ChatViewProps) {
                   { context: { terminalFocus: false } },
                 )}
                 onRemoveQueuedMessage={onRemoveQueuedMessage}
+                findQuery={findQuery}
+                findActiveMatchIndex={findActiveMatchIndex}
+                findMatches={findMatches}
               />
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
