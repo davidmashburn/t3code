@@ -2557,6 +2557,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (
       text.length === 0 ||
       isConnecting ||
+      readOnlyReason !== null ||
       isComposerApprovalState ||
       pendingUserInputs.length > 0 ||
       projectSelectionRequired
@@ -2784,6 +2785,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       isComposerApprovalState,
       pendingUserInputs.length,
       projectSelectionRequired,
+      readOnlyReason,
       applyPromptReplacement,
       isComposerModelPickerOpen,
       readComposerSnapshot,
@@ -2937,7 +2939,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </div>
             </div>
           ) : null}
-
         </div>
       ) : null}
       {isTasksDrawerOpen &&
@@ -3234,15 +3235,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         ? "Type your own answer, or leave this blank to use the selected option"
                         : showPlanFollowUpPrompt && activeProposedPlan
                           ? "Add feedback to refine the plan, or leave this blank to implement it"
-                          : projectSelectionRequired
-                            ? "Choose a project above to start a thread"
-                            : noProviderAvailable
-                              ? "Enable a provider in Settings to send a message"
-                              : phase === "disconnected"
-                                ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                          : readOnlyReason
+                            ? readOnlyReason
+                            : projectSelectionRequired
+                              ? "Choose a project above to start a thread"
+                              : noProviderAvailable
+                                ? "Enable a provider in Settings to send a message"
+                                : phase === "disconnected"
+                                  ? DISCONNECTED_COMPOSER_PLACEHOLDER
+                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
                   }
-                  disabled={isConnecting || isComposerApprovalState || projectSelectionRequired}
+                  disabled={
+                    isConnecting ||
+                    readOnlyReason !== null ||
+                    isComposerApprovalState ||
+                    projectSelectionRequired
+                  }
                 />
                 {showMobilePendingAnswerActions ? (
                   <div
@@ -3408,7 +3416,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </div>
             )}
           </div>
-
         </div>
       </div>
     </form>
