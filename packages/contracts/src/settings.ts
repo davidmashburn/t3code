@@ -794,7 +794,9 @@ const ClaudeSettingsPatch = Schema.Struct({
   homePath: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
   launchArgs: Schema.optionalKey(TrimmedString),
-  mirrorExternalSessions: Schema.optionalKey(Schema.Boolean),
+  // `Schema.optional` (not `optionalKey`): the source setting is itself optional, so patches
+  // must accept an explicit `undefined` under exactOptionalPropertyTypes.
+  mirrorExternalSessions: Schema.optional(Schema.Boolean),
 });
 
 const CursorSettingsPatch = Schema.Struct({
