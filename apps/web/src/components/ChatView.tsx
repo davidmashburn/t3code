@@ -224,6 +224,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   AlarmClockIcon,
+  BotIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
   DownloadIcon,
@@ -1499,6 +1500,12 @@ export default function ChatView(props: ChatViewProps) {
     reportFailure: false,
   });
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
+    reportFailure: false,
+  });
+  const takeoverThreadSession = useAtomCommand(threadEnvironment.takeoverSession, {
+    reportFailure: false,
+  });
+  const releaseThreadSession = useAtomCommand(threadEnvironment.releaseSession, {
     reportFailure: false,
   });
   const respondToThreadApproval = useAtomCommand(threadEnvironment.respondToApproval, {
@@ -6449,6 +6456,72 @@ export default function ChatView(props: ChatViewProps) {
       }),
     [feedbackSubmissions, routeThreadKey],
   );
+  const isMirroredClaudeSession =
+    activeThread?.session?.origin === "external" && activeThread.session.controlMode === "mirrored";
+  const isOwnedExternalClaudeSession =
+    activeThread?.session?.origin === "external" && activeThread.session.controlMode === "owned";
+  const mirroredSessionReadOnlyReason = isMirroredClaudeSession
+    ? "This Claude Code session is mirrored read-only"
+    : null;
+  const claudeMirrorBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
+    const items: ComposerBannerStackItem[] = [];
+    if (isMirroredClaudeSession && activeThread) {
+      items.push({
+        id: `claude-mirror:${activeThread.id}`,
+        variant: "info",
+        icon: <BotIcon />,
+        title: "Live Claude Code session",
+        description:
+          activeThread.session?.status === "running"
+            ? "Read-only while Claude Code is working. Close or stop the terminal session before taking control in T3."
+            : "Read-only while Claude Code owns this session. Close its terminal before taking control in T3.",
+        actions: (
+          <Button
+            size="xs"
+            disabled={activeThread.session?.status === "running"}
+            onClick={() =>
+              void takeoverThreadSession({
+                environmentId,
+                input: { threadId: activeThread.id },
+              })
+            }
+          >
+            Take over in T3
+          </Button>
+        ),
+      });
+    } else if (isOwnedExternalClaudeSession && activeThread) {
+      items.push({
+        id: `claude-owned:${activeThread.id}`,
+        variant: "info",
+        icon: <BotIcon />,
+        title: "T3 controls this Claude session",
+        description: "Release it before resuming the same session from Claude Code.",
+        actions: (
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() =>
+              void releaseThreadSession({
+                environmentId,
+                input: { threadId: activeThread.id },
+              })
+            }
+          >
+            Release to Claude Code
+          </Button>
+        ),
+      });
+    }
+    return items;
+  }, [
+    activeThread,
+    environmentId,
+    isMirroredClaudeSession,
+    isOwnedExternalClaudeSession,
+    releaseThreadSession,
+    takeoverThreadSession,
+  ]);
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const backgroundLivenessItems =
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
@@ -6461,6 +6534,7 @@ export default function ChatView(props: ChatViewProps) {
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
+        ...claudeMirrorBannerItems,
         ...feedbackBannerItems,
         ...usageLimitsItems,
         ...projectCloneItems,
@@ -6472,6 +6546,7 @@ export default function ChatView(props: ChatViewProps) {
       ];
     }
     return [
+      ...claudeMirrorBannerItems,
       ...feedbackBannerItems,
       ...usageLimitsItems,
       ...projectCloneItems,
@@ -6522,6 +6597,7 @@ export default function ChatView(props: ChatViewProps) {
   }, [
     activeBranchMismatchKey,
     backgroundLivenessBannerItem,
+    claudeMirrorBannerItems,
     feedbackBannerItems,
     handleRestoreThreadBranch,
     isRestoringThreadBranch,
@@ -9771,6 +9847,7 @@ export default function ChatView(props: ChatViewProps) {
                             keybindings={keybindings}
                             terminalOpen={Boolean(terminalUiState.terminalOpen)}
                             gitCwd={gitCwd}
+                            readOnlyReason={mirroredSessionReadOnlyReason}
                             pullRequestProjectId={
                               supportsPullRequests ? (activeProject?.id ?? null) : null
                             }

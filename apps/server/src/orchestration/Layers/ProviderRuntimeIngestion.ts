@@ -1140,7 +1140,11 @@ const make = Effect.gen(function* () {
             }),
             onSome: (state) => {
               const segmentIndex = state.baseKey === input.baseKey ? state.nextSegmentIndex : 0;
-              const messageId = assistantSegmentMessageId(input.baseKey, segmentIndex, input.turnId);
+              const messageId = assistantSegmentMessageId(
+                input.baseKey,
+                segmentIndex,
+                input.turnId,
+              );
               return {
                 baseKey: input.baseKey,
                 nextSegmentIndex: state.baseKey === input.baseKey ? state.nextSegmentIndex + 1 : 1,
@@ -1161,7 +1165,11 @@ const make = Effect.gen(function* () {
   }) =>
     Effect.gen(function* () {
       if (!input.turnId) {
-        return assistantSegmentMessageId(assistantSegmentBaseKeyFromEvent(input.event), 0, undefined);
+        return assistantSegmentMessageId(
+          assistantSegmentBaseKeyFromEvent(input.event),
+          0,
+          undefined,
+        );
       }
 
       const activeMessageId = yield* getActiveAssistantMessageIdForTurn(
@@ -1758,6 +1766,8 @@ const make = Effect.gen(function* () {
                 ? { providerInstanceId: event.providerInstanceId }
                 : {}),
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
+              origin: thread.session?.origin ?? "t3",
+              controlMode: thread.session?.controlMode ?? "owned",
               activeTurnId: nextActiveTurnId,
               lastError,
               updatedAt: now,
@@ -1871,11 +1881,7 @@ const make = Effect.gen(function* () {
         event.type === "item.completed" && event.payload.itemType === "assistant_message"
           ? {
               messageId: assistantSegmentMessageId(
-                assistantSegmentBaseKeyFromRuntimeItem(
-                  event.itemId,
-                  event.turnId,
-                  event.eventId,
-                ),
+                assistantSegmentBaseKeyFromRuntimeItem(event.itemId, event.turnId, event.eventId),
                 0,
                 toTurnId(event.turnId),
               ),
@@ -2106,11 +2112,7 @@ const make = Effect.gen(function* () {
             // Already tracked; no-op.
           } else {
             const assistantMessageId = assistantSegmentMessageId(
-              assistantSegmentBaseKeyFromRuntimeItem(
-                event.itemId,
-                event.turnId,
-                event.eventId,
-              ),
+              assistantSegmentBaseKeyFromRuntimeItem(event.itemId, event.turnId, event.eventId),
               0,
               turnId,
             );

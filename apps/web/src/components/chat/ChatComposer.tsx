@@ -1379,6 +1379,7 @@ export interface ChatComposerProps {
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen: boolean;
   gitCwd: string | null;
+  readOnlyReason: string | null;
   pullRequestProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   restingControlsHost: HTMLDivElement | null;
@@ -1497,6 +1498,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     keybindings,
     terminalOpen,
     gitCwd,
+    readOnlyReason,
     pullRequestProjectId,
     pullRequestRepository,
     restingControlsHost,
@@ -2628,6 +2630,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ],
   );
   const collapsedComposerPrimaryActionDisabled =
+    readOnlyReason !== null ||
     phase === "running" ||
     isSendBusy ||
     isSendDisabled ||
@@ -6109,7 +6112,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                               promptHasText={false}
                               isSendBusy={isSendBusy}
                               sendDisabledReason={sendDisabledReason}
-                              isConnecting={isConnecting}
+                              isConnecting={isConnecting || readOnlyReason !== null}
                               isEnvironmentUnavailable={
                                 environmentUnavailable !== null ||
                                 noProviderAvailable ||
@@ -6203,9 +6206,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       : activePendingProgress.customAnswer ||
                         "Type your own answer, or leave this blank to use the selected option"
                     : prompt.trim() ||
-                      (showProviderUnavailable
-                        ? "Enable a provider in Settings"
-                        : "Ask anything...")}
+                      (readOnlyReason
+                        ? readOnlyReason
+                        : showProviderUnavailable
+                          ? "Enable a provider in Settings"
+                          : "Ask anything...")}
                 </button>
                 {collapsedComposerImagePreviews}
                 <button
@@ -6739,7 +6744,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       promptHasText={false}
                       isSendBusy={isSendBusy}
                       sendDisabledReason={sendDisabledReason}
-                      isConnecting={isConnecting}
+                      isConnecting={isConnecting || readOnlyReason !== null}
                       isEnvironmentUnavailable={
                         environmentUnavailable !== null ||
                         noProviderAvailable ||
@@ -6850,7 +6855,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     promptHasText={prompt.trim().length > 0}
                     isSendBusy={isSendBusy}
                     sendDisabledReason={sendDisabledReason}
-                    isConnecting={isConnecting}
+                    isConnecting={isConnecting || readOnlyReason !== null}
                     isEnvironmentUnavailable={
                       environmentUnavailable !== null ||
                       noProviderAvailable ||
