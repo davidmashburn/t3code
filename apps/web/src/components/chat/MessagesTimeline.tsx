@@ -101,6 +101,7 @@ import {
   resolveDiffThemeName,
   resolveFileDiffPath,
 } from "../../lib/diffRendering";
+import type { TextMatch } from "../../lib/searchHighlight";
 import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import ChatMarkdown, { ChatMarkdownAssetImage } from "../ChatMarkdown";
 import ReactMarkdown from "react-markdown";
@@ -302,6 +303,9 @@ interface TimelineRowSharedState {
   onSteerQueuedMessage: (id: string) => void;
   steerQueuedMessageShortcutLabel: string | null;
   onRemoveQueuedMessage: (id: string) => void;
+  findQuery: string;
+  findActiveMatchIndex: number;
+  findMatches: Array<{ messageId: string; match: TextMatch }>;
 }
 
 interface TimelineRowActivityState {
@@ -371,6 +375,7 @@ function TimelineListFooter({ composerInset }: { readonly composerInset: number 
   );
 }
 const EMPTY_TIMELINE_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
+const EMPTY_FIND_MATCHES: Array<{ messageId: string; match: TextMatch }> = [];
 const TIMELINE_MAINTAIN_SCROLL_AT_END = {
   animated: false,
   on: {
@@ -468,6 +473,9 @@ interface MessagesTimelineProps {
   onSteerQueuedMessage?: (id: string) => void;
   steerQueuedMessageShortcutLabel?: string | null;
   onRemoveQueuedMessage?: (id: string) => void;
+  findQuery?: string;
+  findActiveMatchIndex?: number;
+  findMatches?: Array<{ messageId: string; match: TextMatch }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -526,6 +534,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onSteerQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
   steerQueuedMessageShortcutLabel = null,
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
+  findQuery = "",
+  findActiveMatchIndex = 0,
+  findMatches = EMPTY_FIND_MATCHES,
 }: MessagesTimelineProps) {
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
   const rememberedPosition = useMemo(
@@ -1176,6 +1187,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onSteerQueuedMessage,
       steerQueuedMessageShortcutLabel,
       onRemoveQueuedMessage,
+      findQuery,
+      findActiveMatchIndex,
+      findMatches,
     }),
     [
       readyCitationRequest,
@@ -1212,6 +1226,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onSteerQueuedMessage,
       steerQueuedMessageShortcutLabel,
       onRemoveQueuedMessage,
+      findQuery,
+      findActiveMatchIndex,
+      findMatches,
     ],
   );
   const backgroundWorktreeSetup =
@@ -1681,9 +1698,16 @@ type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["grouped
 type TimelineRow = MessagesTimelineRow;
 
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
+  const ctx = use(TimelineRowCtx);
   const isExpandedToolGroup = row.kind === "work" && row.isExpandedToolGroup;
   const isExpandedToolGroupHeader =
     (row.kind === "work-toggle" && row.expanded) || (row.kind === "work-live" && row.expanded);
+  const messageId = row.kind === "message" || row.kind === "assistant-meta" ? row.message.id : null;
+  const hasActiveMatch =
+    messageId !== null &&
+    ctx.findQuery.length > 0 &&
+    ctx.findMatches.length > 0 &&
+    ctx.findMatches[ctx.findActiveMatchIndex]?.messageId === messageId;
 
   return (
     <div
@@ -1719,6 +1743,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         row.kind === "message" || row.kind === "assistant-meta" ? row.message.id : undefined
       }
       data-message-role={row.kind === "message" ? row.message.role : undefined}
+      data-search-active-match={hasActiveMatch || undefined}
     >
       {row.kind === "work" ? (
         <WorkGroupSection
@@ -2404,6 +2429,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
             onUseArtifactTemplate={ctx.onUseArtifactTemplate}
             onRunShellCommand={ctx.onRunShellCommand}
             onImageExpand={ctx.onImageExpand}
+            {...(ctx.findQuery ? { searchQuery: ctx.findQuery } : {})}
           />
         </AssistantCitationSource>
         <AssistantChangedFilesSection
@@ -2524,6 +2550,7 @@ function ProposedPlanTimelineRow({
         threadRef={ctx.threadRef ?? undefined}
         cwd={ctx.markdownCwd}
         workspaceRoot={ctx.workspaceRoot}
+        {...(ctx.findQuery ? { searchQuery: ctx.findQuery } : {})}
       />
     </div>
   );
@@ -4022,6 +4049,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
       parseRawHtml={false}
       renderContextReference={props.renderContextReference}
       headingLevelOffset={MESSAGE_HEADING_LEVEL}
+      {...(ctx.findQuery ? { searchQuery: ctx.findQuery } : {})}
     />
   );
 });
