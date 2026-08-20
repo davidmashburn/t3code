@@ -51,6 +51,8 @@ export type RespondToThreadApprovalInput = CommandInput<"thread.approval.respond
 export type RespondToThreadUserInputInput = CommandInput<"thread.user-input.respond">;
 export type RevertThreadCheckpointInput = CommandInput<"thread.checkpoint.revert">;
 export type StopThreadSessionInput = CommandInput<"thread.session.stop">;
+export type TakeoverThreadSessionInput = CommandInput<"thread.session.takeover">;
+export type ReleaseThreadSessionInput = CommandInput<"thread.session.release">;
 
 type DispatchTag = typeof ORCHESTRATION_WS_METHODS.dispatchCommand;
 type CommandEffect = Effect.Effect<
@@ -327,6 +329,29 @@ export const stopThreadSession: (input: StopThreadSessionInput) => CommandEffect
   return yield* dispatch({
     ...input,
     type: "thread.session.stop",
+    commandId: metadata.commandId,
+    createdAt: metadata.createdAt,
+  });
+});
+
+export const takeoverThreadSession: (input: TakeoverThreadSessionInput) => CommandEffect =
+  Effect.fn("EnvironmentCommands.takeoverThreadSession")(function* (input) {
+    const metadata = yield* timestampedCommandMetadata(input);
+    return yield* dispatch({
+      ...input,
+      type: "thread.session.takeover",
+      commandId: metadata.commandId,
+      createdAt: metadata.createdAt,
+    });
+  });
+
+export const releaseThreadSession: (input: ReleaseThreadSessionInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.releaseThreadSession",
+)(function* (input) {
+  const metadata = yield* timestampedCommandMetadata(input);
+  return yield* dispatch({
+    ...input,
+    type: "thread.session.release",
     commandId: metadata.commandId,
     createdAt: metadata.createdAt,
   });
