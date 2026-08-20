@@ -90,6 +90,10 @@ authenticated.
 - Your tester can still open it on macOS by right-clicking the app and choosing **Open** on first
   launch.
 - To keep staging files for debugging package contents, run: `vp run dist:desktop:dmg --keep-stage`
+- To install a freshly built Alpha DMG into `/Applications` and refresh Launch Services:
+  `vp run install:desktop:alpha`
+- To run an end-to-end `t3://thread/<id>` deep-link test on macOS:
+  `vp run test:desktop:deep-link -- --thread-id <thread-id>`
 - To allow code-signing/notarization when configured in CI/secrets, add: `--signed`.
 - Signed macOS builds also require `T3CODE_APPLE_TEAM_ID` and
   `T3CODE_MACOS_PROVISIONING_PROFILE`. The passkey RP domain is derived from

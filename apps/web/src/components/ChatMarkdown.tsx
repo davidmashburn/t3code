@@ -82,6 +82,7 @@ import {
 } from "../markdown-links";
 import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
+import { highlightHtml } from "../lib/searchHighlight";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useActiveEnvironmentId } from "../state/entities";
 import { serverEnvironment } from "../state/server";
@@ -119,6 +120,7 @@ interface ChatMarkdownProps {
   lineBreaks?: boolean;
   /** Parse sanitized raw HTML instead of displaying its source text. */
   parseRawHtml?: boolean;
+  searchQuery?: string;
 }
 
 const EMPTY_MARKDOWN_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
@@ -177,11 +179,13 @@ export function orderedListGutterStyle(
 
 const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
   ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), "mark"],
   attributes: {
     ...defaultSchema.attributes,
     "*": (defaultSchema.attributes?.["*"] ?? []).filter((attribute) => attribute !== "title"),
     code: [...(defaultSchema.attributes?.code ?? []), "dataCodeMeta", "dataInlineCode"],
     blockquote: [...(defaultSchema.attributes?.blockquote ?? []), "dataAlert"],
+    mark: ["className", "class"],
   },
   protocols: {
     ...defaultSchema.protocols,
@@ -1363,6 +1367,7 @@ function ChatMarkdown({
   className,
   lineBreaks = false,
   parseRawHtml = true,
+  searchQuery,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
@@ -1382,6 +1387,10 @@ function ChatMarkdown({
     serverConfig?.availableEditors ?? [],
   );
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const highlightedText = useMemo(
+    () => (searchQuery ? highlightHtml(text, searchQuery) : text),
+    [searchQuery, text],
+  );
   const markdownFileLinkMetaByHref = useMemo(() => {
     const metaByHref = new Map<
       string,
@@ -1554,6 +1563,9 @@ function ChatMarkdown({
     };
 
     return {
+      mark({ children }) {
+        return <mark className="search-highlight">{children}</mark>;
+      },
       p({ node: _node, children, ...props }) {
         return <p {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</p>;
       },
@@ -1803,7 +1815,7 @@ function ChatMarkdown({
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >
-        {text}
+        {highlightedText}
       </ReactMarkdown>
     </div>
   );

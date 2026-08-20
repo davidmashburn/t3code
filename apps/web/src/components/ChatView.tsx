@@ -260,6 +260,8 @@ import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
+import { findAllMatches, type TextMatch } from "../lib/searchHighlight";
+import { FindInThread } from "./chat/FindInThread";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -1364,6 +1366,9 @@ function ChatViewContent(props: ChatViewProps) {
   >({});
   const [isConnecting, _setIsConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findActiveMatchIndex, setFindActiveMatchIndex] = useState(0);
   const [maximizedRightPanelThreadKey, setMaximizedRightPanelThreadKey] = useState<string | null>(
     null,
   );
@@ -2591,6 +2596,65 @@ function ChatViewContent(props: ChatViewProps) {
       ),
     [activeThread?.proposedPlans, timelineMessages, turnPlans, workLogEntries],
   );
+  const timelineMessagesFlat = useMemo(
+    () => timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
+    [timelineEntries],
+  );
+  const findMatches = useMemo(() => {
+    if (!findQuery || !findOpen) return [];
+    const results: Array<{ messageId: string; match: TextMatch }> = [];
+    for (const message of timelineMessagesFlat) {
+      const text = message.text ?? "";
+      const matches = findAllMatches(text, findQuery);
+      for (const match of matches) {
+        results.push({ messageId: message.id, match });
+      }
+    }
+    return results;
+  }, [findQuery, findOpen, timelineMessagesFlat]);
+  const findTotalMatches = findMatches.length;
+  const findMessageIdByMatchIndex = useMemo(
+    () => findMatches.map((match) => match.messageId),
+    [findMatches],
+  );
+  const handleFindNext = useCallback(() => {
+    if (findTotalMatches === 0) return;
+    setFindActiveMatchIndex((index) => {
+      const next = Math.min(index + 1, findTotalMatches - 1);
+      const messageId = findMessageIdByMatchIndex[next];
+      if (messageId) {
+        const element = document.querySelector(`[data-message-id="${messageId}"]`);
+        element?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      return next;
+    });
+  }, [findTotalMatches, findMessageIdByMatchIndex]);
+  const handleFindPrevious = useCallback(() => {
+    if (findTotalMatches === 0) return;
+    setFindActiveMatchIndex((index) => {
+      const next = Math.max(index - 1, 0);
+      const messageId = findMessageIdByMatchIndex[next];
+      if (messageId) {
+        const element = document.querySelector(`[data-message-id="${messageId}"]`);
+        element?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      return next;
+    });
+  }, [findTotalMatches, findMessageIdByMatchIndex]);
+  const openFind = useCallback(() => {
+    setFindOpen(true);
+    setFindQuery("");
+    setFindActiveMatchIndex(0);
+  }, []);
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setFindQuery("");
+    setFindActiveMatchIndex(0);
+  }, []);
+  const handleFindQueryChange = useCallback((query: string) => {
+    setFindQuery(query);
+    setFindActiveMatchIndex(0);
+  }, []);
   const [dockedDraftHeroThreadKey, setDockedDraftHeroThreadKey] = useState<string | null>(null);
   const draftHeroDockRequested =
     activeThreadKey !== null && dockedDraftHeroThreadKey === activeThreadKey;
@@ -4775,6 +4839,35 @@ function ChatViewContent(props: ChatViewProps) {
 
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+
+      if (findOpen) {
+        if (event.key === "Escape" && !event.metaKey && !event.ctrlKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeFind();
+          return;
+        }
+      }
+
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "f" &&
+        !event.shiftKey &&
+        !event.altKey
+      ) {
+        if (isCommandPaletteOpen()) return;
+        if (!activeThreadId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (findOpen) {
+          closeFind();
+        } else {
+          openFind();
+        }
+        return;
+      }
+
       if (preventRepeatedTerminalCloseShortcut(event, keybindings)) {
         event.stopPropagation();
         return;
@@ -4935,6 +5028,9 @@ function ChatViewContent(props: ChatViewProps) {
     toggleRightPanelMaximized,
     toggleTerminalVisibility,
     composerRef,
+    findOpen,
+    closeFind,
+    openFind,
   ]);
 
   const onRevertToTurnCount = useCallback(
@@ -6382,6 +6478,17 @@ function ChatViewContent(props: ChatViewProps) {
             </div>
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col">
+              {findOpen ? (
+                <FindInThread
+                  query={findQuery}
+                  onQueryChange={handleFindQueryChange}
+                  matchIndex={findActiveMatchIndex}
+                  totalMatches={findTotalMatches}
+                  onNext={handleFindNext}
+                  onPrevious={handleFindPrevious}
+                  onClose={closeFind}
+                />
+              ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 agentPanelModel={agentPanelModel}
@@ -6418,6 +6525,9 @@ function ChatViewContent(props: ChatViewProps) {
                 liveFollowEnabled={timelineLiveFollowEnabled}
                 onIsAtEndChange={onIsAtEndChange}
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
+                findQuery={findQuery}
+                findActiveMatchIndex={findActiveMatchIndex}
+                findMatches={findMatches}
                 hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
                 topFadeEnabled={!hasTimelineTopBanner}
                 loadEarlier={loadEarlierTurns}

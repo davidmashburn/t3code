@@ -45,6 +45,7 @@ import {
   resolveFileDiffPath,
 } from "../../lib/diffRendering";
 import ChatMarkdown from "../ChatMarkdown";
+import { type TextMatch } from "../../lib/searchHighlight";
 import {
   BotIcon,
   CheckIcon,
@@ -145,6 +146,9 @@ interface TimelineRowSharedState {
   onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
   agentPanelModel: AgentPanelModel;
   onOpenAgents: () => void;
+  findQuery: string;
+  findActiveMatchIndex: number;
+  findMatches: Array<{ messageId: string; match: TextMatch }>;
 }
 
 interface TimelineRowActivityState {
@@ -242,6 +246,9 @@ interface MessagesTimelineProps {
   topFadeEnabled?: boolean;
   /** Non-null when older turns exist beyond the loaded window. */
   loadEarlier?: { readonly loading: boolean; readonly onLoadEarlier: () => void } | null;
+  findQuery?: string;
+  findActiveMatchIndex?: number;
+  findMatches?: Array<{ messageId: string; match: TextMatch }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +288,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   hideEmptyPlaceholder = false,
   topFadeEnabled = false,
   loadEarlier = null,
+  findQuery = "",
+  findActiveMatchIndex = 0,
+  findMatches = [],
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
@@ -518,6 +528,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onToggleWorkGroup,
       agentPanelModel,
       onOpenAgents,
+      findQuery,
+      findActiveMatchIndex,
+      findMatches,
     }),
     [
       timestampFormat,
@@ -534,6 +547,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onToggleWorkGroup,
       agentPanelModel,
       onOpenAgents,
+      findQuery,
+      findActiveMatchIndex,
+      findMatches,
     ],
   );
   const activityState = useMemo<TimelineRowActivityState>(
@@ -921,6 +937,14 @@ type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["grouped
 type TimelineRow = MessagesTimelineRow;
 
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
+  const ctx = use(TimelineRowCtx);
+  const messageId = row.kind === "message" ? row.message.id : null;
+  const hasActiveMatch =
+    messageId !== null &&
+    ctx.findQuery.length > 0 &&
+    ctx.findMatches.length > 0 &&
+    ctx.findMatches[ctx.findActiveMatchIndex]?.messageId === messageId;
+
   return (
     <div
       className={cn(
@@ -938,6 +962,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       data-timeline-row-kind={row.kind}
       data-message-id={row.kind === "message" ? row.message.id : undefined}
       data-message-role={row.kind === "message" ? row.message.role : undefined}
+      data-search-active-match={hasActiveMatch || undefined}
     >
       {row.kind === "work" ? <WorkGroupSection groupedEntries={row.groupedEntries} /> : null}
       {row.kind === "work-toggle" ? <WorkGroupToggleTimelineRow row={row} /> : null}
@@ -1116,6 +1141,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           isStreaming={Boolean(row.message.streaming)}
           lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
           skills={ctx.skills}
+          {...(ctx.findQuery ? { searchQuery: ctx.findQuery } : {})}
         />
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
@@ -1174,6 +1200,7 @@ function ProposedPlanTimelineRow({
         threadRef={ctx.threadRef ?? undefined}
         cwd={ctx.markdownCwd}
         workspaceRoot={ctx.workspaceRoot}
+        {...(ctx.findQuery ? { searchQuery: ctx.findQuery } : {})}
       />
     </div>
   );
@@ -1672,6 +1699,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   markdownCwd: string | undefined;
 }) {
   const ctx = use(TimelineRowCtx);
+  const searchQueryProps = ctx.findQuery ? { searchQuery: ctx.findQuery } : {};
   const renderInlineMarkdownSegment = (text: string, key: string) => {
     const leadingWhitespace = /^\s+/.exec(text)?.[0] ?? "";
     const textWithoutLeadingWhitespace = text.slice(leadingWhitespace.length);
@@ -1693,6 +1721,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
             className="text-message-foreground"
             lineBreaks
             parseRawHtml={false}
+            {...searchQueryProps}
           />
         ) : null}
         {trailingWhitespace ? <span aria-hidden="true">{trailingWhitespace}</span> : null}
@@ -1716,6 +1745,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
                   className="text-message-foreground"
                   lineBreaks
                   parseRawHtml={false}
+                  {...searchQueryProps}
                 />
               </div>
             ) : null
@@ -1805,6 +1835,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
           className="text-message-foreground"
           lineBreaks
           parseRawHtml={false}
+          {...searchQueryProps}
         />,
       );
     } else if (inlinePrefix.length === 0) {
@@ -1831,6 +1862,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
       className="text-message-foreground"
       lineBreaks
       parseRawHtml={false}
+      {...searchQueryProps}
     />
   );
 });
