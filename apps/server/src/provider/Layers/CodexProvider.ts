@@ -34,6 +34,7 @@ import {
   buildServerProvider,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
+import { isCodexFastServiceTier } from "../../codexModelOptions.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import packageJson from "../../../package.json" with { type: "json" };
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
@@ -246,14 +247,15 @@ export function mapCodexModelCapabilities(
         },
   );
   const defaultReasoning = reasoningOptions.find((option) => option.isDefault)?.id;
-  const serviceTiers =
+  const serviceTiers = (
     model.serviceTiers && model.serviceTiers.length > 0
       ? model.serviceTiers
       : (model.additionalSpeedTiers ?? []).map((id) => ({
           id,
           name: id === "fast" ? "Fast" : id,
           description: "",
-        }));
+        }))
+  ).filter((tier) => !isCodexFastServiceTier(tier));
   const catalogDefaultServiceTier = serviceTiers.some(
     (tier) => tier.id === model.defaultServiceTier,
   )

@@ -13,10 +13,18 @@ it("returns the selected Codex service tier id", () => {
   assert.equal(getCodexServiceTierOptionValue(selection), "flex");
 });
 
-it("keeps legacy persisted fast mode selections working", () => {
-  const selection = createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
+it("drops persisted Codex Fast selections so they cannot bill a premium tier", () => {
+  const fastMode = createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
     { id: "fastMode", value: true },
   ]);
+  const fastTier = createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
+    { id: "serviceTier", value: "fast" },
+  ]);
+  const priorityTier = createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
+    { id: "serviceTier", value: "priority" },
+  ]);
 
-  assert.equal(getCodexServiceTierOptionValue(selection), "fast");
+  assert.equal(getCodexServiceTierOptionValue(fastMode), undefined);
+  assert.equal(getCodexServiceTierOptionValue(fastTier), undefined);
+  assert.equal(getCodexServiceTierOptionValue(priorityTier), undefined);
 });

@@ -283,7 +283,6 @@ validationLayer("CodexAdapterLive validation", (it) => {
         launchArgs: "",
         model: "gpt-5.3-codex",
         providerInstanceId: ProviderInstanceId.make("codex"),
-        serviceTier: "priority",
         threadId: asThreadId("thread-1"),
         runtimeMode: "full-access",
       });
@@ -356,7 +355,6 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
         input: "hello",
         model: "gpt-5.3-codex",
         effort: "high",
-        serviceTier: "priority",
       });
     }),
   );
