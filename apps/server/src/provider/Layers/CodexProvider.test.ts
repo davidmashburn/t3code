@@ -101,35 +101,38 @@ it("prefers labeled multi-bucket Codex usage and clamps percentages", () => {
 });
 
 it("maps current Codex model capability fields", () => {
-  const capabilities = mapCodexModelCapabilities({
-    additionalSpeedTiers: [],
-    defaultReasoningEffort: "super-high",
-    description: "Test model",
-    displayName: "GPT Test",
-    hidden: false,
-    id: "gpt-test",
-    isDefault: true,
-    model: "gpt-test",
-    defaultServiceTier: "flex",
-    serviceTiers: [
-      {
-        id: "priority",
-        name: "Fast",
-        description: "Lower latency responses.",
-      },
-      {
-        id: "flex",
-        name: "Flex",
-        description: "Lower-cost asynchronous routing.",
-      },
-    ],
-    supportedReasoningEfforts: [
-      {
-        description: "Maximum reasoning",
-        reasoningEffort: "super-high",
-      },
-    ],
-  });
+  const capabilities = mapCodexModelCapabilities(
+    {
+      additionalSpeedTiers: [],
+      defaultReasoningEffort: "super-high",
+      description: "Test model",
+      displayName: "GPT Test",
+      hidden: false,
+      id: "gpt-test",
+      isDefault: true,
+      model: "gpt-test",
+      defaultServiceTier: "flex",
+      serviceTiers: [
+        {
+          id: "priority",
+          name: "Fast",
+          description: "Lower latency responses.",
+        },
+        {
+          id: "flex",
+          name: "Flex",
+          description: "Lower-cost asynchronous routing.",
+        },
+      ],
+      supportedReasoningEfforts: [
+        {
+          description: "Maximum reasoning",
+          reasoningEffort: "super-high",
+        },
+      ],
+    },
+    { allowFastServiceTier: true },
+  );
 
   assert.deepStrictEqual(capabilities.optionDescriptors, [
     {
@@ -146,6 +149,11 @@ it("maps current Codex model capability fields", () => {
       options: [
         { id: "default", label: "Standard" },
         {
+          id: "priority",
+          label: "Fast",
+          description: "Lower latency responses.",
+        },
+        {
           id: "flex",
           label: "Flex",
           description: "Lower-cost asynchronous routing.",
@@ -157,7 +165,7 @@ it("maps current Codex model capability fields", () => {
   ]);
 });
 
-it("hides Fast service tiers from the Codex picker", () => {
+it("hides Fast service tiers unless the Codex setting allows them", () => {
   const capabilities = mapCodexModelCapabilities({
     additionalSpeedTiers: ["fast"],
     defaultReasoningEffort: "medium",

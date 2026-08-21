@@ -359,6 +359,40 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
     }),
   );
 
+  it.effect("forwards Codex Fast when the allow Fast setting is on", () => {
+    const runtimeFactory = makeRuntimeFactory();
+    const layer = Layer.effect(
+      CodexAdapter,
+      Effect.gen(function* () {
+        const codexConfig = decodeCodexSettings({ allowFastServiceTier: true });
+        return yield* makeCodexAdapter(codexConfig, {
+          makeRuntime: runtimeFactory.factory,
+        });
+      }),
+    ).pipe(
+      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(providerSessionDirectoryTestLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("sess-fast-allowed"),
+        modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3-codex", [
+          { id: "serviceTier", value: "priority" },
+        ]),
+        runtimeMode: "full-access",
+      });
+
+      const runtime = runtimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      NodeAssert.equal(runtime.options.serviceTier, "priority");
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("passes configured launch args into the session runtime", () => {
     const runtimeFactory = makeRuntimeFactory();
     const layer = Layer.effect(

@@ -182,7 +182,9 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       const reasoningEffort =
         getModelSelectionStringOptionValue(modelSelection, "reasoningEffort") ??
         DEFAULT_TEXT_GENERATION_REASONING_EFFORT;
-      const serviceTier = getCodexServiceTierOptionValue(modelSelection);
+      const serviceTier = getCodexServiceTierOptionValue(modelSelection, {
+        allowFastServiceTier: codexConfig.allowFastServiceTier,
+      });
       const spawnCommand = yield* resolveSpawnCommand(
         codexConfig.binaryPath || "codex",
         [

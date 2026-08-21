@@ -182,6 +182,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         homePath: "/Users/julius/.codex",
         shadowHomePath: "",
         launchArgs: "",
+        allowFastServiceTier: false,
         customModels: [],
       });
       assert.deepEqual(next.providers.claudeAgent, {
@@ -573,6 +574,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         homePath: "",
         shadowHomePath: "",
         launchArgs: "",
+        allowFastServiceTier: false,
         customModels: [],
       });
       assert.deepEqual(next.providers.claudeAgent, {
