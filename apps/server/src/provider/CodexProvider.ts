@@ -163,6 +163,7 @@ function codexAccountEmail(account: CodexSchema.V2GetAccountResponse["account"])
 
 export function mapCodexModelCapabilities(
   model: CodexSchema.V2ModelListResponse__Model,
+  options?: { readonly allowFastServiceTier?: boolean },
 ): ModelCapabilities {
   const reasoningOptions = model.supportedReasoningEfforts.map(({ reasoningEffort }) =>
     reasoningEffort ===
@@ -178,15 +179,17 @@ export function mapCodexModelCapabilities(
         },
   );
   const defaultReasoning = reasoningOptions.find((option) => option.isDefault)?.id;
-  const serviceTiers = (
+  const advertisedServiceTiers =
     model.serviceTiers && model.serviceTiers.length > 0
       ? model.serviceTiers
       : (model.additionalSpeedTiers ?? []).map((id) => ({
           id,
           name: id === "fast" ? "Fast" : id,
           description: "",
-        }))
-  ).filter((tier) => !isCodexFastServiceTier(tier));
+        }));
+  const serviceTiers = options?.allowFastServiceTier
+    ? advertisedServiceTiers
+    : advertisedServiceTiers.filter((tier) => !isCodexFastServiceTier(tier));
   const catalogDefaultServiceTier = serviceTiers.some(
     (tier) => tier.id === model.defaultServiceTier,
   )
@@ -236,13 +239,14 @@ export function mapCodexModelCapabilities(
 
 function parseCodexModelListResponse(
   response: CodexSchema.V2ModelListResponse,
+  allowFastServiceTier: boolean,
 ): ReadonlyArray<ServerProviderModel> {
   return response.data.map((model) => ({
     slug: model.model,
     name: formatCodexModelName(model.displayName),
     isCustom: false,
     ...(model.isDefault ? { isDefault: true } : {}),
-    capabilities: mapCodexModelCapabilities(model),
+    capabilities: mapCodexModelCapabilities(model, { allowFastServiceTier }),
   }));
 }
 
@@ -318,6 +322,7 @@ function parseCodexSkillsListResponse(
 
 const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
   client: CodexClient.CodexAppServerClient["Service"],
+  allowFastServiceTier: boolean,
 ) {
   const models: ServerProviderModel[] = [];
   let cursor: string | null | undefined = undefined;
@@ -327,7 +332,7 @@ const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
       "model/list",
       cursor ? { cursor } : {},
     );
-    models.push(...parseCodexModelListResponse(response));
+    models.push(...parseCodexModelListResponse(response, allowFastServiceTier));
     cursor = response.nextCursor;
   } while (cursor);
 
@@ -362,8 +367,9 @@ const requestCodexChatGptModels = Effect.fn("requestCodexChatGptModels")(functio
   readonly client: CodexClient.CodexAppServerClient["Service"];
   readonly codexHome: string;
   readonly spawnedAtMs: number;
+  readonly allowFastServiceTier: boolean;
 }) {
-  const models = yield* requestAllCodexModels(input.client);
+  const models = yield* requestAllCodexModels(input.client, input.allowFastServiceTier);
   const refreshed = yield* readCodexModelsCacheFetchedAt(input.codexHome).pipe(
     Effect.repeat({
       schedule: Schedule.spaced(CODEX_CATALOG_REFRESH_POLL),
@@ -377,7 +383,7 @@ const requestCodexChatGptModels = Effect.fn("requestCodexChatGptModels")(functio
     );
     return models;
   }
-  return yield* requestAllCodexModels(input.client);
+  return yield* requestAllCodexModels(input.client, input.allowFastServiceTier);
 });
 
 /**
@@ -465,6 +471,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   readonly customModels?: ReadonlyArray<CustomModelSetting>;
   readonly environment?: NodeJS.ProcessEnv;
   readonly skipNativeUsage?: boolean;
+  readonly allowFastServiceTier?: boolean;
 }) {
   const spawnedAtMs = DateTime.toEpochMillis(yield* DateTime.now);
   const { client, initialize } = yield* withCodexAppServerClient(input);
@@ -488,8 +495,13 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
         cwds: [input.cwd],
       }),
       accountResponse.account?.type === "chatgpt"
-        ? requestCodexChatGptModels({ client, codexHome: initialize.codexHome, spawnedAtMs })
-        : requestAllCodexModels(client),
+        ? requestCodexChatGptModels({
+            client,
+            codexHome: initialize.codexHome,
+            spawnedAtMs,
+            allowFastServiceTier: input.allowFastServiceTier === true,
+          })
+        : requestAllCodexModels(client, input.allowFastServiceTier === true),
       input.skipNativeUsage
         ? Effect.succeed(undefined)
         : client.request("account/rateLimits/read", null).pipe(
@@ -623,6 +635,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     readonly customModels: ReadonlyArray<CustomModelSetting>;
     readonly environment?: NodeJS.ProcessEnv;
     readonly skipNativeUsage?: boolean;
+    readonly allowFastServiceTier?: boolean;
   }) => Effect.Effect<
     CodexAppServerProviderSnapshot,
     CodexErrors.CodexAppServerError,
@@ -664,6 +677,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     customModels: codexSettings.customModels,
     environment: resolvedEnvironment,
     ...(managedAuth ? { skipNativeUsage: true } : {}),
+    allowFastServiceTier: codexSettings.allowFastServiceTier,
   }).pipe(
     Effect.scoped,
     Effect.timeoutOption(Duration.millis(CODEX_AUTH_PROBE_TIMEOUT_MS)),

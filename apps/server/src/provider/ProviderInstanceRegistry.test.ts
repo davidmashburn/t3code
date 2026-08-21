@@ -90,6 +90,7 @@ const makeCodexConfig = (overrides: Partial<CodexSettings>): CodexSettings => ({
   homePath: "",
   shadowHomePath: "",
   launchArgs: "",
+  allowFastServiceTier: false,
   customModels: [],
   ...overrides,
 });
