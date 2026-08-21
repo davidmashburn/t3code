@@ -261,6 +261,7 @@ function codexAccountEmail(account: CodexSchema.V2GetAccountResponse["account"])
 
 export function mapCodexModelCapabilities(
   model: CodexSchema.V2ModelListResponse__Model,
+  options?: { readonly allowFastServiceTier?: boolean },
 ): ModelCapabilities {
   const reasoningOptions = model.supportedReasoningEfforts.map(({ reasoningEffort }) =>
     reasoningEffort ===
@@ -276,15 +277,17 @@ export function mapCodexModelCapabilities(
         },
   );
   const defaultReasoning = reasoningOptions.find((option) => option.isDefault)?.id;
-  const serviceTiers = (
+  const advertisedServiceTiers =
     model.serviceTiers && model.serviceTiers.length > 0
       ? model.serviceTiers
       : (model.additionalSpeedTiers ?? []).map((id) => ({
           id,
           name: id === "fast" ? "Fast" : id,
           description: "",
-        }))
-  ).filter((tier) => !isCodexFastServiceTier(tier));
+        }));
+  const serviceTiers = options?.allowFastServiceTier
+    ? advertisedServiceTiers
+    : advertisedServiceTiers.filter((tier) => !isCodexFastServiceTier(tier));
   const catalogDefaultServiceTier = serviceTiers.some(
     (tier) => tier.id === model.defaultServiceTier,
   )
@@ -338,13 +341,14 @@ const toDisplayName = (model: CodexSchema.V2ModelListResponse__Model): string =>
 
 function parseCodexModelListResponse(
   response: CodexSchema.V2ModelListResponse,
+  allowFastServiceTier: boolean,
 ): ReadonlyArray<ServerProviderModel> {
   return response.data.map((model) => ({
     slug: model.model,
     name: toDisplayName(model),
     isCustom: false,
     ...(model.isDefault ? { isDefault: true } : {}),
-    capabilities: mapCodexModelCapabilities(model),
+    capabilities: mapCodexModelCapabilities(model, { allowFastServiceTier }),
   }));
 }
 
@@ -442,6 +446,7 @@ function parseCodexSkillsListResponse(
 
 const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
   client: CodexClient.CodexAppServerClient["Service"],
+  allowFastServiceTier: boolean,
 ) {
   const models: ServerProviderModel[] = [];
   let cursor: string | null | undefined = undefined;
@@ -451,7 +456,7 @@ const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
       "model/list",
       cursor ? { cursor } : {},
     );
-    models.push(...parseCodexModelListResponse(response));
+    models.push(...parseCodexModelListResponse(response, allowFastServiceTier));
     cursor = response.nextCursor;
   } while (cursor);
 
@@ -534,6 +539,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   readonly cwd: string;
   readonly customModels?: ReadonlyArray<CustomModelSetting>;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly allowFastServiceTier?: boolean;
 }) {
   const { client, initialize } = yield* withCodexAppServerClient(input);
 
@@ -556,7 +562,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
       client.request("skills/list", {
         cwds: [input.cwd],
       }),
-      requestAllCodexModels(client),
+      requestAllCodexModels(client, input.allowFastServiceTier === true),
       // Usage is an enrichment: a failure or a slow answer degrades to "no
       // usage this probe" rather than costing the account and models.
       client.request("account/rateLimits/read", undefined).pipe(
@@ -702,6 +708,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     readonly cwd: string;
     readonly customModels: ReadonlyArray<CustomModelSetting>;
     readonly environment?: NodeJS.ProcessEnv;
+    readonly allowFastServiceTier?: boolean;
   }) => Effect.Effect<
     CodexAppServerProviderSnapshot,
     CodexErrors.CodexAppServerError,
@@ -741,6 +748,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     cwd: process.cwd(),
     customModels: codexSettings.customModels,
     environment: resolvedEnvironment,
+    allowFastServiceTier: codexSettings.allowFastServiceTier,
   }).pipe(
     Effect.scoped,
     Effect.timeoutOption(Duration.millis(AUTH_PROBE_TIMEOUT_MS)),

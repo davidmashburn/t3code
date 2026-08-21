@@ -2252,7 +2252,9 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
 
         const serviceTier =
           input.modelSelection?.instanceId === boundInstanceId
-            ? getCodexServiceTierOptionValue(input.modelSelection)
+            ? getCodexServiceTierOptionValue(input.modelSelection, {
+                allowFastServiceTier: codexConfig.allowFastServiceTier,
+              })
             : undefined;
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
         const runtimeInput: CodexSessionRuntimeOptions = {
@@ -2525,7 +2527,9 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         : undefined;
     const serviceTier =
       input.modelSelection?.instanceId === boundInstanceId
-        ? getCodexServiceTierOptionValue(input.modelSelection)
+        ? getCodexServiceTierOptionValue(input.modelSelection, {
+            allowFastServiceTier: codexConfig.allowFastServiceTier,
+          })
         : undefined;
     return yield* session.runtime
       .sendTurn({
