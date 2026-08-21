@@ -41,6 +41,7 @@ import {
 } from "@t3tools/provider-core/server/snapshotProbe";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
+import { isCodexFastServiceTier } from "../codexModelOptions.ts";
 import {
   codexRateLimitsFailureMessage,
   codexRateLimitsToLimits,
@@ -167,14 +168,15 @@ export function mapCodexModelCapabilities(
         },
   );
   const defaultReasoning = reasoningOptions.find((option) => option.isDefault)?.id;
-  const serviceTiers =
+  const serviceTiers = (
     model.serviceTiers && model.serviceTiers.length > 0
       ? model.serviceTiers
       : (model.additionalSpeedTiers ?? []).map((id) => ({
           id,
           name: id === "fast" ? "Fast" : id,
           description: "",
-        }));
+        }))
+  ).filter((tier) => !isCodexFastServiceTier(tier));
   const catalogDefaultServiceTier = serviceTiers.some(
     (tier) => tier.id === model.defaultServiceTier,
   )
