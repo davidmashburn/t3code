@@ -17,11 +17,15 @@ export function isCodexFastServiceTier(input: {
 
 export function getCodexServiceTierOptionValue(
   modelSelection: ModelSelection | null | undefined,
+  options?: { readonly allowFastServiceTier?: boolean },
 ): string | undefined {
   const selected =
     getModelSelectionStringOptionValue(modelSelection, "serviceTier") ??
     (getModelSelectionBooleanOptionValue(modelSelection, "fastMode") === true ? "fast" : undefined);
-  if (!selected || isCodexFastServiceTier({ id: selected })) {
+  if (!selected) {
+    return undefined;
+  }
+  if (!options?.allowFastServiceTier && isCodexFastServiceTier({ id: selected })) {
     return undefined;
   }
   return selected;
