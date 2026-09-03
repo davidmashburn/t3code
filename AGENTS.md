@@ -83,6 +83,17 @@ The most common defect in this repo is a change that works on the path you teste
 - The web app requires pairing. Hand over the pairing URL, not the bare origin. A URL without its token is useless to whoever you gave it to. If the token got consumed, mint a fresh one with `node apps/server/src/bin.ts pair` — note it carries standard scopes, while the startup URL carries admin scopes (needed for Settings → Connections management).
 - Stop what you started, by the PID you tracked. See rule 1.
 
+## Rebuilding the installed Alpha app
+
+- From an agent running inside T3 Code, **only** use `vp run rebuild:desktop:alpha` to build,
+  install, and relaunch the local Alpha desktop app.
+- Never run `vp run install:desktop:alpha`, the installer script, `nohup`, background shell jobs, or
+  `launchctl submit` from a T3-hosted agent. The direct installer quits the app hosting the agent,
+  and `launchctl submit` infers restart behavior that can create an endless reinstall loop.
+- The safe rebuild command builds the DMG first, then hands exactly one install attempt to a
+  non-`KeepAlive` user launch agent. T3 Code briefly disconnects and relaunches. Installer output is
+  written to `/tmp/t3code-alpha-rebuild.log`.
+
 ## Test data
 
 An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:

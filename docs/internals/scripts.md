@@ -90,8 +90,12 @@ authenticated.
 - Your tester can still open it on macOS by right-clicking the app and choosing **Open** on first
   launch.
 - To keep staging files for debugging package contents, run: `vp run dist:desktop:dmg --keep-stage`
-- To install a freshly built Alpha DMG into `/Applications` and refresh Launch Services:
-  `vp run install:desktop:alpha`
+- To safely rebuild, install, and relaunch the local Alpha app from an agent hosted by T3 Code, run:
+  `vp run rebuild:desktop:alpha`. The command hands one install attempt to a non-`KeepAlive` macOS
+  user launch agent so it survives the hosting app quitting without restarting in a loop. Installer
+  output is written to `/tmp/t3code-alpha-rebuild.log`.
+- `vp run install:desktop:alpha` installs an already-built Alpha DMG directly. Use it only from a
+  terminal that is not hosted by the T3 Code app being replaced.
 - To run an end-to-end `t3://thread/<id>` deep-link test on macOS:
   `vp run test:desktop:deep-link -- --thread-id <thread-id>`
 - To allow code-signing/notarization when configured in CI/secrets, add: `--signed`.
