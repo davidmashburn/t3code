@@ -83,6 +83,17 @@ The most common defect in this repo is a change that works on the path you teste
 - To reuse web dev auth across worktrees, configure one fixed `T3CODE_DEV_AUTH_TOKEN` in the main checkout's gitignored `.env`. The `t3.json` setup links that file into worktrees. Never commit or publish the token or a startup URL. See [Reusable dev credential](docs/operations/development.md#reusable-dev-credential).
 - Stop what you started, by the PID you tracked. See rule 1.
 
+## Rebuilding the installed Alpha app
+
+- From an agent running inside T3 Code, **only** use `vp run rebuild:desktop:alpha` to build,
+  install, and relaunch the local Alpha desktop app.
+- Never run `vp run install:desktop:alpha`, the installer script, `nohup`, background shell jobs, or
+  `launchctl submit` from a T3-hosted agent. The direct installer quits the app hosting the agent,
+  and `launchctl submit` infers restart behavior that can create an endless reinstall loop.
+- The safe rebuild command builds the DMG first, then hands exactly one install attempt to a
+  non-`KeepAlive` user launch agent. T3 Code briefly disconnects and relaunches. Installer output is
+  written to `/tmp/t3code-alpha-rebuild.log`.
+
 ## Test data
 
 An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:

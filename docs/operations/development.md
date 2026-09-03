@@ -144,9 +144,15 @@ DMGs default to the host architecture. Use `--arch` to choose another target and
 to retain packaging files for inspection. Run `vp run dist:desktop:artifact --help` for other
 options.
 
-To install a freshly built Alpha DMG into `/Applications` and refresh Launch Services, run
-`vp run install:desktop:alpha`. To run an end-to-end `t3://thread/<id>` deep-link test on macOS,
-run `vp run test:desktop:deep-link -- --thread-id <thread-id>`.
+To safely rebuild, install, and relaunch the local Alpha app from an agent hosted by T3 Code, run
+`vp run rebuild:desktop:alpha`. The command hands one install attempt to a non-`KeepAlive` macOS
+user launch agent so it survives the hosting app quitting without restarting in a loop. Installer
+output is written to `/tmp/t3code-alpha-rebuild.log`.
+
+`vp run install:desktop:alpha` installs an already-built Alpha DMG directly. Use it only from a
+terminal that is not hosted by the T3 Code app being replaced. To run an end-to-end
+`t3://thread/<id>` deep-link test on macOS, run
+`vp run test:desktop:deep-link -- --thread-id <thread-id>`.
 
 ### Linux AppImage prerequisites
 

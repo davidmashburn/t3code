@@ -9,9 +9,11 @@ import * as NodePath from "node:path";
 import {
   ALPHA_BUNDLE_ID,
   buildThreadDeepLinkUrl,
+  launchdJobIsActive,
   logContainsDeepLinkConfigure,
   logContainsThreadDeepLink,
   parseHdiutilAttachMountPoint,
+  renderOneShotLaunchAgentPlist,
   resolveDefaultDmgPath,
   resolveDmgFileName,
   resolveMountedAppPath,
@@ -69,5 +71,25 @@ describe("desktop-alpha-mac", () => {
     assert.equal(ALPHA_BUNDLE_ID, "com.t3tools.t3code.alpha");
 
     NodeFS.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  it("renders a one-shot launch agent without restart behavior", () => {
+    const plist = renderOneShotLaunchAgentPlist({
+      label: "com.example.rebuild",
+      programArguments: ["/path/to/node", "/repo/a&b/rebuild.ts", "--install-after-build"],
+      workingDirectory: "/repo/a&b",
+      logPath: "/tmp/rebuild.log",
+    });
+
+    assert.include(plist, "<key>RunAtLoad</key>\n  <true/>");
+    assert.include(plist, "<key>KeepAlive</key>\n  <false/>");
+    assert.include(plist, "<string>/repo/a&amp;b/rebuild.ts</string>");
+    assert.include(plist, "<string>/repo/a&amp;b</string>");
+  });
+
+  it("distinguishes active launchd jobs from completed jobs", () => {
+    assert.isTrue(launchdJobIsActive("active count = 1\nstate = running"));
+    assert.isTrue(launchdJobIsActive("active count = 0\nstate = spawn scheduled"));
+    assert.isFalse(launchdJobIsActive("active count = 0\nstate = not running"));
   });
 });
