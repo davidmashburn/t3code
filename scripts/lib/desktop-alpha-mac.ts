@@ -11,8 +11,61 @@ export const ALPHA_APP_NAME = "T3 Code (Alpha)";
 export const NIGHTLY_APP_NAME = "T3 Code (Nightly)";
 export const ALPHA_BUNDLE_ID = "com.t3tools.t3code.alpha";
 export const DEFAULT_ALPHA_APP_PATH = `/Applications/${ALPHA_APP_NAME}.app`;
+export const LOCAL_REBUILD_LAUNCHD_LABEL = "com.t3tools.t3code.local-rebuild";
+export const LOCAL_REBUILD_LOG_PATH = "/tmp/t3code-alpha-rebuild.log";
 export const LSREGISTER_PATH =
   "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+
+function escapePlistString(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+export function renderOneShotLaunchAgentPlist(input: {
+  readonly label: string;
+  readonly programArguments: readonly string[];
+  readonly workingDirectory: string;
+  readonly logPath: string;
+}): string {
+  const argumentsXml = input.programArguments
+    .map((argument) => `    <string>${escapePlistString(argument)}</string>`)
+    .join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${escapePlistString(input.label)}</string>
+  <key>ProgramArguments</key>
+  <array>
+${argumentsXml}
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${escapePlistString(input.workingDirectory)}</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>${escapePlistString(input.logPath)}</string>
+  <key>StandardErrorPath</key>
+  <string>${escapePlistString(input.logPath)}</string>
+</dict>
+</plist>
+`;
+}
+
+export function launchdJobIsActive(output: string): boolean {
+  return (
+    /\bstate = (?:running|spawn scheduled)\b/u.test(output) ||
+    /\bactive count = [1-9]\d*\b/u.test(output)
+  );
+}
 
 export function desktopTraceLogPath(homeDirectory = NodeOS.homedir()): string {
   return NodePath.join(homeDirectory, ".t3", "userdata", "logs", "desktop.trace.ndjson");
