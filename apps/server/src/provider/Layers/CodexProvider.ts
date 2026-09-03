@@ -160,9 +160,14 @@ export function normalizeCodexRateLimits(
     bucketsById.length > 0
       ? bucketsById
       : [[response.rateLimits.limitId?.trim() || "codex", response.rateLimits]];
-  const windows = buckets.flatMap(([bucketId, bucket]) =>
+  const availableWindows = buckets.flatMap(([bucketId, bucket]) =>
     normalizeUsageBucket(bucketId, bucket, buckets.length > 1),
   );
+  const rollingWindows = availableWindows.filter((window) => !window.id.endsWith(":spend"));
+  const windows =
+    rollingWindows.length > 0 && rollingWindows.every((window) => window.usedPercent < 100)
+      ? rollingWindows
+      : availableWindows;
   const metadataBucket = buckets.find(
     ([, bucket]) => bucket.credits || bucket.rateLimitReachedType,
   )?.[1];

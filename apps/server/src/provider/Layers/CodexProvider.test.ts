@@ -37,6 +37,12 @@ it("normalizes Codex rolling usage windows for provider-neutral clients", () => 
           windowDurationMins: 10_080,
           resetsAt: 1_767_873_600,
         },
+        individualLimit: {
+          limit: "100",
+          remainingPercent: 1,
+          resetsAt: 1_767_873_600,
+          used: "99",
+        },
         credits: {
           hasCredits: true,
           unlimited: false,
@@ -71,6 +77,34 @@ it("normalizes Codex rolling usage windows for provider-neutral clients", () => 
     },
     updatedAt: "2026-01-01T00:00:00.000Z",
   });
+});
+
+it("only exposes the Codex spend limit when rolling limits are absent or exhausted", () => {
+  const normalizeWindows = (
+    rateLimits: Parameters<typeof normalizeCodexRateLimits>[0]["rateLimits"],
+  ) =>
+    normalizeCodexRateLimits({ rateLimits }, "2026-01-01T00:00:00.000Z")?.windows.map(
+      ({ label, usedPercent }) => ({ label, usedPercent }),
+    );
+
+  assert.deepStrictEqual(
+    normalizeWindows({
+      primary: { usedPercent: 100, windowDurationMins: 300 },
+      secondary: { usedPercent: 40, windowDurationMins: 10_080 },
+      individualLimit: { limit: "100", remainingPercent: 85, resetsAt: 0, used: "15" },
+    }),
+    [
+      { label: "5-hour limit", usedPercent: 100 },
+      { label: "Weekly limit", usedPercent: 40 },
+      { label: "Spend limit", usedPercent: 15 },
+    ],
+  );
+  assert.deepStrictEqual(
+    normalizeWindows({
+      individualLimit: { limit: "100", remainingPercent: 85, resetsAt: 0, used: "15" },
+    }),
+    [{ label: "Spend limit", usedPercent: 15 }],
+  );
 });
 
 it("prefers labeled multi-bucket Codex usage and clamps percentages", () => {
