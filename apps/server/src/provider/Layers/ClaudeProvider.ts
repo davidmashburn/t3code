@@ -1,6 +1,7 @@
 import {
   type ClaudeSettings,
   type ModelCapabilities,
+  type ServerProvider,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -242,6 +243,56 @@ type ClaudeCapabilitiesProbe = {
    */
   readonly usage?: Pick<SDKControlGetUsageResponse, "rate_limits_available" | "rate_limits">;
 };
+
+type ClaudeRateLimits = NonNullable<SDKControlGetUsageResponse["rate_limits"]>;
+
+function normalizeClaudeUsagePercent(value: number | null | undefined): number | undefined {
+  if (value === null || value === undefined || !Number.isFinite(value)) return undefined;
+  return Math.round(Math.max(0, Math.min(100, value)));
+}
+
+function normalizeClaudeUsageReset(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  return DateTime.make(value).pipe(
+    Option.match({ onNone: () => undefined, onSome: DateTime.formatIso }),
+  );
+}
+
+export function normalizeClaudeRateLimits(
+  rateLimits: ClaudeRateLimits,
+  updatedAt: string,
+): ServerProvider["usage"] | undefined {
+  const windows = [
+    {
+      id: "claude:five-hour",
+      label: "5-hour limit",
+      durationMinutes: 300,
+      ...rateLimits.five_hour,
+    },
+    {
+      id: "claude:weekly",
+      label: "Weekly limit",
+      durationMinutes: 10_080,
+      ...rateLimits.seven_day,
+    },
+  ].flatMap(({ id, label, durationMinutes, utilization, resets_at }) => {
+    const usedPercent = normalizeClaudeUsagePercent(utilization);
+    if (usedPercent === undefined) return [];
+    const resetsAt = normalizeClaudeUsageReset(resets_at);
+    return [{ id, label, durationMinutes, usedPercent, ...(resetsAt ? { resetsAt } : {}) }];
+  });
+  const extraUsagePercent = rateLimits.extra_usage?.is_enabled
+    ? normalizeClaudeUsagePercent(rateLimits.extra_usage.utilization)
+    : undefined;
+  const includeExtraUsage =
+    extraUsagePercent !== undefined &&
+    (windows.length === 0 || windows.some((window) => window.usedPercent >= 100));
+  const visibleWindows = includeExtraUsage
+    ? [...windows, { id: "claude:spend", label: "Extra usage", usedPercent: extraUsagePercent }]
+    : windows;
+
+  return visibleWindows.length > 0 ? { windows: visibleWindows, updatedAt } : undefined;
+}
 
 function parseClaudeInitializationCommands(
   commands: ReadonlyArray<ClaudeSlashCommand> | undefined,
@@ -568,6 +619,10 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
           checkedAt,
         })
       : claudeUsageResponseToLimits({ response: capabilities.usage, checkedAt }).limits;
+  const usage =
+    capabilities.usage?.rate_limits_available && capabilities.usage.rate_limits
+      ? normalizeClaudeRateLimits(capabilities.usage.rate_limits, checkedAt)
+      : undefined;
   return buildServerProvider({
     presentation: CLAUDE_PRESENTATION,
     enabled: claudeSettings.enabled,
@@ -584,6 +639,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         ...(capabilities.email ? { email: capabilities.email } : {}),
         ...(authMetadata ? authMetadata : {}),
       },
+      ...(usage ? { usage } : {}),
       ...(versionUpgradeMessage ? { message: versionUpgradeMessage } : {}),
       usageLimits,
     },

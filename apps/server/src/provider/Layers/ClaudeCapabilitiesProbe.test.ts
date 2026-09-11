@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - cleanup uses Node's retrying rm, which the FileSystem service does not expose.
 import * as ClaudeSdk from "@anthropic-ai/claude-agent-sdk";
+import type { SDKControlGetUsageResponse } from "@anthropic-ai/claude-agent-sdk";
 import { vi } from "vite-plus/test";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -16,6 +17,7 @@ import * as Schema from "effect/Schema";
 import {
   buildClaudeCapabilitiesProbeQueryOptions,
   CLAUDE_CAPABILITIES_PROBE_SETTING_SOURCES,
+  normalizeClaudeRateLimits,
   probeClaudeCapabilities,
 } from "./ClaudeProvider.ts";
 
@@ -50,6 +52,47 @@ it("isolates Claude capability probes without dropping workspace setting sources
   assert.equal(options.env?.FORCE_CODE_TERMINAL, undefined);
   assert.equal(options.env?.CLAUDE_CODE_AUTO_CONNECT_IDE, "0");
   assert.equal(options.env?.CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL, "1");
+});
+
+it("normalizes Claude rolling limits without letting extra usage override them", () => {
+  const rateLimits = {
+    five_hour: { utilization: 25, resets_at: "2026-09-03T12:00:00.000Z" },
+    seven_day: { utilization: 72.4, resets_at: "2026-09-08T12:00:00.000Z" },
+    extra_usage: {
+      is_enabled: true,
+      monthly_limit: 100,
+      used_credits: 99,
+      utilization: 99,
+    },
+  } satisfies NonNullable<SDKControlGetUsageResponse["rate_limits"]>;
+
+  assert.deepEqual(normalizeClaudeRateLimits(rateLimits, "2026-09-03T00:00:00.000Z"), {
+    windows: [
+      {
+        id: "claude:five-hour",
+        label: "5-hour limit",
+        durationMinutes: 300,
+        usedPercent: 25,
+        resetsAt: "2026-09-03T12:00:00.000Z",
+      },
+      {
+        id: "claude:weekly",
+        label: "Weekly limit",
+        durationMinutes: 10_080,
+        usedPercent: 72,
+        resetsAt: "2026-09-08T12:00:00.000Z",
+      },
+    ],
+    updatedAt: "2026-09-03T00:00:00.000Z",
+  });
+
+  assert.deepEqual(
+    normalizeClaudeRateLimits(
+      { ...rateLimits, five_hour: { utilization: 100, resets_at: null } },
+      "2026-09-03T00:00:00.000Z",
+    )?.windows.at(-1),
+    { id: "claude:spend", label: "Extra usage", usedPercent: 99 },
+  );
 });
 
 it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
