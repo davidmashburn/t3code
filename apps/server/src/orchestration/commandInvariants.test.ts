@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   MessageId,
   CommandId,
@@ -9,17 +9,16 @@ import {
   type OrchestrationReadModel,
   ProviderInstanceId,
 } from "@t3tools/contracts";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 
 import {
   findThreadById,
   listThreadsByProjectId,
-  requireNonNegativeInteger,
   requireThread,
   requireThreadAbsent,
 } from "./commandInvariants.ts";
 
-const now = new Date().toISOString();
+const now = "2026-01-01T00:00:00.000Z";
 
 const readModel: OrchestrationReadModel = {
   snapshotSequence: 2,
@@ -68,6 +67,8 @@ const readModel: OrchestrationReadModel = {
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
       latestTurn: null,
       messages: [],
       session: null,
@@ -91,6 +92,8 @@ const readModel: OrchestrationReadModel = {
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
       latestTurn: null,
       messages: [],
       session: null,
@@ -195,25 +198,5 @@ describe("commandInvariants", () => {
         }),
       ),
     ).rejects.toThrow("already exists");
-  });
-
-  it("requires non-negative integers", async () => {
-    await Effect.runPromise(
-      requireNonNegativeInteger({
-        commandType: "thread.checkpoint.revert",
-        field: "turnCount",
-        value: 0,
-      }),
-    );
-
-    await expect(
-      Effect.runPromise(
-        requireNonNegativeInteger({
-          commandType: "thread.checkpoint.revert",
-          field: "turnCount",
-          value: -1,
-        }),
-      ),
-    ).rejects.toThrow("greater than or equal to 0");
   });
 });

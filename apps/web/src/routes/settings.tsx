@@ -1,10 +1,19 @@
 import { RotateCcwIcon } from "lucide-react";
-import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import {
+  Outlet,
+  createFileRoute,
+  redirect,
+  useCanGoBack,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
+import { useCallback, useEffect, useState } from "react";
 
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
+import { SettingsBreadcrumb } from "../components/settings/SettingsBreadcrumb";
 import { Button } from "../components/ui/button";
-import { SidebarInset, SidebarTrigger } from "../components/ui/sidebar";
+import { SidebarInset } from "../components/ui/sidebar";
+import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { isElectron } from "../env";
 
 function RestoreDefaultsButton({ onRestored }: { onRestored: () => void }) {
@@ -13,11 +22,11 @@ function RestoreDefaultsButton({ onRestored }: { onRestored: () => void }) {
   return (
     <Button
       size="xs"
-      variant="outline"
+      variant="ghost"
       disabled={changedSettingLabels.length === 0}
       onClick={() => void restoreDefaults()}
     >
-      <RotateCcwIcon className="size-3.5" />
+      <RotateCcwIcon className="mx-1 size-3.5" />
       Restore defaults
     </Button>
   );
@@ -25,16 +34,31 @@ function RestoreDefaultsButton({ onRestored }: { onRestored: () => void }) {
 
 function SettingsContentLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const canGoBack = useCanGoBack();
   const [restoreSignal, setRestoreSignal] = useState(0);
   const showRestoreDefaults = location.pathname === "/settings/general";
   const handleRestored = () => setRestoreSignal((value) => value + 1);
+  const navigateBackWithinApp = useCallback(() => {
+    if (canGoBack) {
+      window.history.back();
+      return;
+    }
+    void navigate({ to: "/" });
+  }, [canGoBack, navigate]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       if (event.key === "Escape") {
         event.preventDefault();
-        window.history.back();
+
+        const activeElement = document.activeElement;
+        if (activeElement instanceof HTMLElement) {
+          activeElement.blur();
+        }
+
+        navigateBackWithinApp();
       }
     };
 
@@ -42,37 +66,21 @@ function SettingsContentLayout() {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, []);
+  }, [navigateBackWithinApp]);
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-        {!isElectron && (
-          <header className="border-b border-border px-3 py-2 sm:px-5">
-            <div className="flex min-h-7 items-center gap-2 sm:min-h-6">
-              <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-              <span className="text-sm font-medium text-foreground">Settings</span>
-              {showRestoreDefaults ? (
-                <div className="ms-auto flex items-center gap-2">
-                  <RestoreDefaultsButton onRestored={handleRestored} />
-                </div>
-              ) : null}
-            </div>
-          </header>
-        )}
-
-        {isElectron && (
-          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5 wco:h-[env(titlebar-area-height)] wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]">
-            <span className="text-xs font-medium tracking-wide text-muted-foreground/70">
-              Settings
-            </span>
+        <WorkspacePageHeader electron={isElectron}>
+          <div className="flex w-full items-center gap-3">
+            <SettingsBreadcrumb pathname={location.pathname} />
             {showRestoreDefaults ? (
               <div className="ms-auto flex items-center gap-2">
                 <RestoreDefaultsButton onRestored={handleRestored} />
               </div>
             ) : null}
           </div>
-        )}
+        </WorkspacePageHeader>
 
         <div key={restoreSignal} className="min-h-0 flex flex-1 flex-col">
           <Outlet />
@@ -88,7 +96,10 @@ function SettingsRouteLayout() {
 
 export const Route = createFileRoute("/settings")({
   beforeLoad: async ({ context, location }) => {
-    if (context.authGateState.status !== "authenticated") {
+    if (
+      context.authGateState.status !== "authenticated" &&
+      context.authGateState.status !== "hosted-static"
+    ) {
       throw redirect({ to: "/pair", replace: true });
     }
 

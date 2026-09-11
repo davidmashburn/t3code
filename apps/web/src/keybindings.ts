@@ -30,6 +30,8 @@ export interface ShortcutModifierStateLike {
 export interface ShortcutMatchContext {
   terminalFocus: boolean;
   terminalOpen: boolean;
+  previewFocus: boolean;
+  previewOpen: boolean;
   [key: string]: boolean;
 }
 
@@ -69,7 +71,17 @@ function normalizeEventKey(key: string): string {
 }
 
 function resolveEventKeys(event: ShortcutEventLike): Set<string> {
-  const keys = new Set([normalizeEventKey(event.key)]);
+  const layoutKey = normalizeEventKey(event.key);
+  const keys = new Set([layoutKey]);
+  // The physical-position fallback exists for layouts that type non-Latin
+  // letters (Cyrillic, Greek) and for Option-modified symbols on macOS.
+  // When the layout already produces a Latin letter, match on it alone;
+  // otherwise a remapped physical key triggers shortcuts for two different
+  // letters at once and shadows system shortcuts on non-QWERTY layouts.
+  const letterCode = event.code?.match(/^Key([A-Z])$/)?.[1];
+  if (letterCode && !/^[a-z]$/.test(layoutKey)) {
+    keys.add(letterCode.toLowerCase());
+  }
   const aliases = event.code ? EVENT_CODE_KEY_ALIASES[event.code] : undefined;
   if (!aliases) return keys;
 
@@ -112,6 +124,8 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
   return {
     terminalFocus: false,
     terminalOpen: false,
+    previewFocus: false,
+    previewOpen: false,
     ...options?.context,
   };
 }
@@ -355,6 +369,14 @@ export function isTerminalSplitShortcut(
   return matchesCommandShortcut(event, keybindings, "terminal.split", options);
 }
 
+export function isTerminalSplitVerticalShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "terminal.splitVertical", options);
+}
+
 export function isTerminalNewShortcut(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,
@@ -377,6 +399,30 @@ export function isDiffToggleShortcut(
   options?: ShortcutMatchOptions,
 ): boolean {
   return matchesCommandShortcut(event, keybindings, "diff.toggle", options);
+}
+
+export function isPreviewToggleShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "preview.toggle", options);
+}
+
+export function isPreviewRefreshShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "preview.refresh", options);
+}
+
+export function isPreviewFocusUrlShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "preview.focusUrl", options);
 }
 
 export function isChatNewShortcut(
