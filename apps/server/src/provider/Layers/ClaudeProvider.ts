@@ -2,6 +2,7 @@ import {
   type ClaudeSettings,
   type ModelCapabilities,
   type ModelSelection,
+  type ServerProvider,
   type ServerProviderModel,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
@@ -23,6 +24,7 @@ import { compareSemverVersions } from "@t3tools/shared/semver";
 import {
   query as claudeQuery,
   type Options as ClaudeQueryOptions,
+  type SDKControlGetUsageResponse,
   type SlashCommand as ClaudeSlashCommand,
   type SDKUserMessage,
   type SettingSource,
@@ -641,8 +643,59 @@ type ClaudeCapabilitiesProbe = {
    * the subscription/token fields are absent and auth is external AWS creds.
    */
   readonly apiProvider: string | undefined;
+  readonly rateLimits: SDKControlGetUsageResponse["rate_limits"] | undefined;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
 };
+
+type ClaudeRateLimits = NonNullable<SDKControlGetUsageResponse["rate_limits"]>;
+
+function normalizeClaudeUsagePercent(value: number | null | undefined): number | undefined {
+  if (value === null || value === undefined || !Number.isFinite(value)) return undefined;
+  return Math.round(Math.max(0, Math.min(100, value)));
+}
+
+function normalizeClaudeUsageReset(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  return DateTime.make(value).pipe(
+    Option.match({ onNone: () => undefined, onSome: DateTime.formatIso }),
+  );
+}
+
+export function normalizeClaudeRateLimits(
+  rateLimits: ClaudeRateLimits,
+  updatedAt: string,
+): ServerProvider["usage"] | undefined {
+  const windows = [
+    {
+      id: "claude:five-hour",
+      label: "5-hour limit",
+      durationMinutes: 300,
+      ...rateLimits.five_hour,
+    },
+    {
+      id: "claude:weekly",
+      label: "Weekly limit",
+      durationMinutes: 10_080,
+      ...rateLimits.seven_day,
+    },
+  ].flatMap(({ id, label, durationMinutes, utilization, resets_at }) => {
+    const usedPercent = normalizeClaudeUsagePercent(utilization);
+    if (usedPercent === undefined) return [];
+    const resetsAt = normalizeClaudeUsageReset(resets_at);
+    return [{ id, label, durationMinutes, usedPercent, ...(resetsAt ? { resetsAt } : {}) }];
+  });
+  const extraUsagePercent = rateLimits.extra_usage?.is_enabled
+    ? normalizeClaudeUsagePercent(rateLimits.extra_usage.utilization)
+    : undefined;
+  const includeExtraUsage =
+    extraUsagePercent !== undefined &&
+    (windows.length === 0 || windows.some((window) => window.usedPercent >= 100));
+  const visibleWindows = includeExtraUsage
+    ? [...windows, { id: "claude:spend", label: "Extra usage", usedPercent: extraUsagePercent }]
+    : windows;
+
+  return visibleWindows.length > 0 ? { windows: visibleWindows, updatedAt } : undefined;
+}
 
 function parseClaudeInitializationCommands(
   commands: ReadonlyArray<ClaudeSlashCommand> | undefined,
@@ -741,8 +794,8 @@ const probeClaudeCapabilities = (
       claudeSettings.binaryPath,
       claudeEnvironment,
     );
-    return yield* Effect.tryPromise(async () => {
-      const q = claudeQuery({
+    const q = yield* Effect.try(() =>
+      claudeQuery({
         // Never yield — we only need initialization data, not a conversation.
         // This prevents any prompt from reaching the Anthropic API.
         // oxlint-disable-next-line require-yield
@@ -755,24 +808,36 @@ const probeClaudeCapabilities = (
           environment: claudeEnvironment,
           cwd,
         }),
-      });
-      const init = await q.initializationResult();
-      const account = init.account as
-        | {
-            readonly email?: string;
-            readonly subscriptionType?: string;
-            readonly tokenSource?: string;
-            readonly apiProvider?: string;
-          }
-        | undefined;
-      return {
-        email: account?.email,
-        subscriptionType: account?.subscriptionType,
-        tokenSource: account?.tokenSource,
-        apiProvider: account?.apiProvider,
-        slashCommands: parseClaudeInitializationCommands(init.commands),
-      } satisfies ClaudeCapabilitiesProbe;
-    });
+      }),
+    );
+    const init = yield* Effect.tryPromise(() => q.initializationResult());
+    const usage = yield* Effect.tryPromise(() =>
+      q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(),
+    ).pipe(
+      Effect.timeoutOption("4 seconds"),
+      Effect.orElseSucceed(() => Option.none()),
+    );
+    const rateLimits = Option.flatMap(usage, (snapshot) =>
+      snapshot.rate_limits_available
+        ? Option.fromNullishOr(snapshot.rate_limits)
+        : Option.none<ClaudeRateLimits>(),
+    ).pipe(Option.getOrUndefined);
+    const account = init.account as
+      | {
+          readonly email?: string;
+          readonly subscriptionType?: string;
+          readonly tokenSource?: string;
+          readonly apiProvider?: string;
+        }
+      | undefined;
+    return {
+      email: account?.email,
+      subscriptionType: account?.subscriptionType,
+      tokenSource: account?.tokenSource,
+      apiProvider: account?.apiProvider,
+      rateLimits,
+      slashCommands: parseClaudeInitializationCommands(init.commands),
+    } satisfies ClaudeCapabilitiesProbe;
   }).pipe(
     Effect.ensuring(
       Effect.sync(() => {
@@ -953,6 +1018,9 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       subscriptionType: capabilities.subscriptionType,
       authMethod: capabilities.tokenSource,
     }) ?? apiProviderAuthMetadata(capabilities.apiProvider);
+  const usage = capabilities.rateLimits
+    ? normalizeClaudeRateLimits(capabilities.rateLimits, checkedAt)
+    : undefined;
   return buildServerProvider({
     presentation: CLAUDE_PRESENTATION,
     enabled: claudeSettings.enabled,
@@ -969,6 +1037,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         ...(capabilities.email ? { email: capabilities.email } : {}),
         ...(authMetadata ? authMetadata : {}),
       },
+      ...(usage ? { usage } : {}),
       ...(versionUpgradeMessage ? { message: versionUpgradeMessage } : {}),
     },
   });

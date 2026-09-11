@@ -32,7 +32,7 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
-import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
+import { checkClaudeProviderStatus, normalizeClaudeRateLimits } from "./ClaudeProvider.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as OpenCodeRuntime from "../opencodeRuntime.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
@@ -132,6 +132,7 @@ type TestClaudeCapabilities = {
   readonly subscriptionType: string | undefined;
   readonly tokenSource: string | undefined;
   readonly apiProvider: string | undefined;
+  readonly rateLimits: Parameters<typeof normalizeClaudeRateLimits>[0] | undefined;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
 };
 
@@ -142,6 +143,7 @@ function claudeCapabilities(overrides: Partial<TestClaudeCapabilities> = {}) {
       subscriptionType: undefined,
       tokenSource: undefined,
       apiProvider: undefined,
+      rateLimits: undefined,
       slashCommands: [],
       ...overrides,
     });
@@ -1774,11 +1776,23 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         Effect.gen(function* () {
           const status = yield* checkClaudeProviderStatus(
             defaultClaudeSettings,
-            claudeCapabilities(),
+            claudeCapabilities({
+              rateLimits: {
+                five_hour: { utilization: 35, resets_at: "2026-09-03T12:00:00.000Z" },
+                seven_day: { utilization: 68, resets_at: "2026-09-08T12:00:00.000Z" },
+              },
+            }),
           );
           assert.strictEqual(status.status, "ready");
           assert.strictEqual(status.installed, true);
           assert.strictEqual(status.auth.status, "authenticated");
+          assert.deepStrictEqual(
+            status.usage?.windows.map(({ label, usedPercent }) => ({ label, usedPercent })),
+            [
+              { label: "5-hour limit", usedPercent: 35 },
+              { label: "Weekly limit", usedPercent: 68 },
+            ],
+          );
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
