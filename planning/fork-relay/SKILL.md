@@ -171,9 +171,40 @@ Never force-push to `origin`.
 | `ChatComposer.tsx` | Keep upstream composer **drawer** layout (#7150+). Add fork props (`readOnlyReason`, `providerUsage*`) to existing drawer/footer components; delete duplicate pre-drawer footer blocks from incoming. |
 | `ProviderRuntimeIngestion.ts` | Merge upstream title-replacement guards with fork `assistantMessageIds` scoping. |
 | Desktop deep links | Keep upstream IPC (linux handler, zoom, fullscreen); add `OPEN_THREAD`, `DesktopDeepLinks`, routing queue in `AppSidebarLayout`. |
-| Migrations | Renumber to next free migration (mirror used **041**, not upstream's lower numbers). |
+| Migrations | Treat the numeric ID as persisted database identity. Renumber an unshipped fork migration to the next free ID; if any real database already recorded the colliding ID, add an idempotent compatibility migration/guard and test the collision history as described below. |
 | `docs/reference/*` | Upstream moved scripts docs to `docs/internals/scripts.md`. |
 | Tests | Prefer `vite-plus/test` workspace imports when replaying test-only commits. |
+
+### Persisted migration-ID collisions
+
+Source-level renumbering is not sufficient once a fork build has applied a migration. Effect's
+migration table records the numeric ID, so a later upstream migration that reuses that ID is
+silently considered complete even when its schema change never ran. A later migration may then
+crash startup when it reads the missing column or table.
+
+Before rebuilding the desktop app after a relay that changes `apps/server/src/persistence/Migrations.ts`:
+
+1. Make a verified backup of `~/.t3/userdata/state.sqlite`; never test by opening the live database
+   read-write.
+2. Clone or copy the backup into an isolated T3 home and inspect its recorded identities:
+   ```bash
+   sqlite3 <copied-db> \
+     'SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id;'
+   ```
+3. Compare every recorded `(migration_id, name)` with the current migration manifest. The same ID
+   with a different name is a shipped collision. Stop the rebuild until it is repaired.
+4. Repair shipped collisions in code, not by editing migration history in the database:
+   - make the first migration that depends on the skipped schema idempotently establish it, when
+     that can protect startup before the normal repair point;
+   - add a new, higher-numbered idempotent repair migration for any other skipped schema;
+   - add a regression test that seeds the fork's recorded `(id, name)` rows and proves the current
+     migration sequence reaches the expected schema.
+5. Start the server once against the isolated copied home, stop that exact captured PID, and verify
+   `PRAGMA quick_check`, the expected columns/tables, and the new migration row. Only then run
+   `vp run rebuild:desktop:alpha` against the live T3 home.
+
+If the fork migration has never shipped or been applied anywhere, renumbering it before replay is
+enough. If that cannot be established, assume the ID is persisted and use the compatibility path.
 
 ## Verify before pushing
 
