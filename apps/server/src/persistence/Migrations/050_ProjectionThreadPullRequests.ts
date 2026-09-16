@@ -31,6 +31,20 @@ function parseLegacyLinkedPullRequest(json: string): LegacyLinkedPullRequest | n
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
+  const projectionThreadColumns = yield* sql<{ readonly name: string }>`
+    PRAGMA table_info(projection_threads)
+  `;
+
+  // Fork builds previously occupied migration id 42 before upstream added the
+  // legacy pull-request column at that id. Repair those databases here before
+  // reading the column for the normalized-table backfill.
+  if (!projectionThreadColumns.some((column) => column.name === "linked_pull_request_json")) {
+    yield* sql`
+      ALTER TABLE projection_threads
+      ADD COLUMN linked_pull_request_json TEXT
+    `;
+  }
+
   yield* sql`
     CREATE TABLE IF NOT EXISTS projection_thread_pull_requests (
       thread_id TEXT NOT NULL,
