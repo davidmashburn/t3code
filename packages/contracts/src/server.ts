@@ -66,14 +66,14 @@ export const ServerProviderAuth = Schema.Struct({
 });
 export type ServerProviderAuth = typeof ServerProviderAuth.Type;
 
-export const ServerProviderUsageWindow = Schema.Struct({
+export const ServerProviderAccountUsageWindow = Schema.Struct({
   id: TrimmedNonEmptyString,
   label: TrimmedNonEmptyString,
   usedPercent: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
   durationMinutes: Schema.optional(PositiveInt),
   resetsAt: Schema.optional(IsoDateTime),
 });
-export type ServerProviderUsageWindow = typeof ServerProviderUsageWindow.Type;
+export type ServerProviderAccountUsageWindow = typeof ServerProviderAccountUsageWindow.Type;
 
 export const ServerProviderUsageCredits = Schema.Struct({
   hasCredits: Schema.Boolean,
@@ -88,7 +88,7 @@ export type ServerProviderUsageCredits = typeof ServerProviderUsageCredits.Type;
  * avoid assigning provider-specific meaning to their ordering.
  */
 export const ServerProviderUsage = Schema.Struct({
-  windows: Schema.Array(ServerProviderUsageWindow),
+  windows: Schema.Array(ServerProviderAccountUsageWindow),
   credits: Schema.optional(ServerProviderUsageCredits),
   limitReached: Schema.optional(TrimmedNonEmptyString),
   updatedAt: IsoDateTime,
