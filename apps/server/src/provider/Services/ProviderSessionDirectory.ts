@@ -1,12 +1,14 @@
 import type {
+  AgentSessionImportSource,
   ProviderInstanceId,
   ProviderDriverKind,
   ProviderSessionRuntimeStatus,
   RuntimeMode,
   ThreadId,
 } from "@t3tools/contracts";
-import { Option, Context } from "effect";
-import type { Effect } from "effect";
+import * as Option from "effect/Option";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
 
 import type {
   ProviderSessionDirectoryPersistenceError,
@@ -39,10 +41,21 @@ export type ProviderSessionDirectoryWriteError =
   | ProviderValidationError
   | ProviderSessionDirectoryPersistenceError;
 
+export interface ProviderSessionDirectoryUpsertOptions {
+  readonly onConflict?: "update" | "ignore";
+}
+
 export interface ProviderSessionDirectoryShape {
   readonly upsert: (
     binding: ProviderRuntimeBinding,
+    options?: ProviderSessionDirectoryUpsertOptions,
   ) => Effect.Effect<void, ProviderSessionDirectoryWriteError>;
+
+  /** Record an imported file without changing the current provider session. */
+  readonly recordImportedTranscript: (input: {
+    readonly threadId: ThreadId;
+    readonly source: AgentSessionImportSource;
+  }) => Effect.Effect<void, ProviderSessionDirectoryPersistenceError>;
 
   readonly getProvider: (
     threadId: ThreadId,

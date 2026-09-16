@@ -6,8 +6,9 @@
  *
  * @module ThreadDeletionReactor
  */
-import { Context } from "effect";
-import type { Effect, Scope } from "effect";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";
 
 /**
  * ThreadDeletionReactorShape - Service API for thread deletion cleanup.
@@ -22,10 +23,12 @@ export interface ThreadDeletionReactorShape {
   readonly start: () => Effect.Effect<void, never, Scope.Scope>;
 
   /**
-   * Resolves when the internal processing queue is empty and idle.
-   * Intended for test use to replace timing-sensitive sleeps.
+   * Resolves once every thread.deleted at or before the supplied event
+   * sequence has been handed to the worker and the worker is empty and idle.
+   * A successful thread.create sequence is the fence callers use before the
+   * new incarnation can own runtime resources.
    */
-  readonly drain: Effect.Effect<void>;
+  readonly drainThrough: (sequence: number) => Effect.Effect<void>;
 }
 
 /**

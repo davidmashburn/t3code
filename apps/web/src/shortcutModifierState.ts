@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { useEffect, useState } from "react";
 
 export interface ShortcutModifierState {
   metaKey: boolean;
@@ -26,24 +26,39 @@ export function areShortcutModifierStatesEqual(
   );
 }
 
-const useShortcutModifierStateStore = create<{
-  state: ShortcutModifierState;
-  setState: (state: ShortcutModifierState) => void;
-  clear: () => void;
-}>((set) => ({
-  state: EMPTY_SHORTCUT_MODIFIER_STATE,
-  setState: (state) =>
-    set((current) => (areShortcutModifierStatesEqual(current.state, state) ? current : { state })),
-  clear: () =>
-    set((current) =>
-      areShortcutModifierStatesEqual(current.state, EMPTY_SHORTCUT_MODIFIER_STATE)
-        ? current
-        : { state: EMPTY_SHORTCUT_MODIFIER_STATE },
-    ),
-}));
-
 export function useShortcutModifierState(): ShortcutModifierState {
-  return useShortcutModifierStateStore((store) => store.state);
+  const [state, setState] = useState(EMPTY_SHORTCUT_MODIFIER_STATE);
+
+  useEffect(() => {
+    const onKeyboardEvent = (event: KeyboardEvent) => {
+      setState((current) => shortcutModifierStateAfterKeyboardEvent(current, event));
+    };
+    // Dictation tools (Wispr Flow) paste with a synthetic ⌘V whose Meta keyup
+    // never reaches the page, so the tracked state stays "⌘ held" forever and
+    // the thread jump hints stick on screen. A paste is never jump intent, so
+    // treat it like a blur and reset. A physically held modifier re-registers
+    // on the next real key event.
+    const onResetEvent = () => {
+      setState((current) =>
+        areShortcutModifierStatesEqual(current, EMPTY_SHORTCUT_MODIFIER_STATE)
+          ? current
+          : EMPTY_SHORTCUT_MODIFIER_STATE,
+      );
+    };
+
+    window.addEventListener("keydown", onKeyboardEvent, true);
+    window.addEventListener("keyup", onKeyboardEvent, true);
+    window.addEventListener("paste", onResetEvent, true);
+    window.addEventListener("blur", onResetEvent);
+    return () => {
+      window.removeEventListener("keydown", onKeyboardEvent, true);
+      window.removeEventListener("keyup", onKeyboardEvent, true);
+      window.removeEventListener("paste", onResetEvent, true);
+      window.removeEventListener("blur", onResetEvent);
+    };
+  }, []);
+
+  return state;
 }
 
 function normalizeModifierKey(key: string): keyof ShortcutModifierState | null {
@@ -64,33 +79,31 @@ function normalizeModifierKey(key: string): keyof ShortcutModifierState | null {
   }
 }
 
-export function syncShortcutModifierStateFromKeyboardEvent(event: KeyboardEvent): void {
+export function shortcutModifierStateAfterKeyboardEvent(
+  currentState: ShortcutModifierState,
+  event: KeyboardEvent,
+): ShortcutModifierState {
   const normalizedModifierKey = normalizeModifierKey(event.key);
+  let nextState: ShortcutModifierState;
   if (normalizedModifierKey) {
-    const currentState = useShortcutModifierStateStore.getState().state;
-    useShortcutModifierStateStore.getState().setState({
+    nextState = {
       ...currentState,
       [normalizedModifierKey]: event.type === "keydown",
-    });
-    return;
+    };
+  } else {
+    // Flags on non-modifier keys may only clear a bit, never set one. After a
+    // dictation tool's synthetic ⌘V (Wispr Flow), the browser can keep
+    // reporting metaKey=true on real key events (Enter to submit) until the
+    // user physically taps ⌘. Trusting that flag would mark ⌘ as held and
+    // stick the thread jump hints. Setting a bit requires a real modifier
+    // keydown, handled above.
+    nextState = {
+      metaKey: currentState.metaKey && event.metaKey,
+      ctrlKey: currentState.ctrlKey && event.ctrlKey,
+      altKey: currentState.altKey && event.altKey,
+      shiftKey: currentState.shiftKey && event.shiftKey,
+    };
   }
 
-  useShortcutModifierStateStore.getState().setState({
-    metaKey: event.metaKey,
-    ctrlKey: event.ctrlKey,
-    altKey: event.altKey,
-    shiftKey: event.shiftKey,
-  });
-}
-
-export function setShortcutModifierState(state: ShortcutModifierState): void {
-  useShortcutModifierStateStore.getState().setState(state);
-}
-
-export function clearShortcutModifierState(): void {
-  useShortcutModifierStateStore.getState().clear();
-}
-
-export function readShortcutModifierState(): ShortcutModifierState {
-  return useShortcutModifierStateStore.getState().state;
+  return areShortcutModifierStatesEqual(currentState, nextState) ? currentState : nextState;
 }

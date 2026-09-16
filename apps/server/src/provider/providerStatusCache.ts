@@ -1,10 +1,13 @@
 import {
-  type ProviderDriverKind,
   type ProviderInstanceId,
   type ServerProvider,
   ServerProvider as ServerProviderSchema,
 } from "@t3tools/contracts";
-import { Cause, Effect, FileSystem, Path, Schema } from "effect";
+import { causeErrorTag } from "@t3tools/shared/observability";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 
 import { writeFileStringAtomically } from "../atomicWrite.ts";
 
@@ -17,7 +20,31 @@ const mergeProviderModels = (
   cachedModels: ReadonlyArray<ServerProvider["models"][number]>,
 ): ReadonlyArray<ServerProvider["models"][number]> => {
   const fallbackSlugs = new Set(fallbackModels.map((model) => model.slug));
-  return [...fallbackModels, ...cachedModels.filter((model) => !fallbackSlugs.has(model.slug))];
+  // The fallback snapshot is built from current settings and already carries
+  // every custom model, so cached custom rows that are not in it were removed
+  // while the cache was stale and must not come back.
+  return [
+    ...fallbackModels,
+    ...cachedModels.filter((model) => !model.isCustom && !fallbackSlugs.has(model.slug)),
+  ];
+};
+
+/**
+ * Built-in drivers in presentation order. Codex and Claude lead, the opt-in
+ * providers follow, and unknown or fork drivers sort after every built-in.
+ */
+const BUILT_IN_DRIVER_ORDER: ReadonlyArray<string> = [
+  "codex",
+  "claudeAgent",
+  "cursor",
+  "grok",
+  "opencode",
+  "antigravity",
+];
+
+const driverRank = (driver: string): number => {
+  const index = BUILT_IN_DRIVER_ORDER.indexOf(driver);
+  return index === -1 ? BUILT_IN_DRIVER_ORDER.length : index;
 };
 
 export const orderProviderSnapshots = (
@@ -25,8 +52,9 @@ export const orderProviderSnapshots = (
 ): ReadonlyArray<ServerProvider> =>
   [...providers].toSorted(
     (left, right) =>
-      (left.displayName ?? "").localeCompare(right.displayName ?? "") ||
+      driverRank(left.driver) - driverRank(right.driver) ||
       left.driver.localeCompare(right.driver) ||
+      (left.displayName ?? "").localeCompare(right.displayName ?? "") ||
       left.instanceId.localeCompare(right.instanceId),
   );
 
@@ -60,6 +88,7 @@ export const hydrateCachedProvider = (input: {
     version: input.cachedProvider.version,
     status: input.cachedProvider.status,
     auth: input.cachedProvider.auth,
+    ...(input.cachedProvider.usage ? { usage: input.cachedProvider.usage } : {}),
     checkedAt: input.cachedProvider.checkedAt,
     slashCommands: input.cachedProvider.slashCommands,
     skills: input.cachedProvider.skills,
@@ -94,23 +123,6 @@ export const resolveProviderStatusCachePath = Effect.fn("resolveProviderStatusCa
   },
 );
 
-/**
- * Legacy kind-keyed path resolver retained for callers that still think in
- * terms of `ProviderDriverKind`. Prefer `resolveProviderStatusCachePath` with an
- * `instanceId`; new code should route through the instance registry.
- *
- * @deprecated use `resolveProviderStatusCachePath` with an instance id.
- */
-export const resolveLegacyProviderStatusCachePath = Effect.fn(
-  "resolveLegacyProviderStatusCachePath",
-)(function* (input: {
-  readonly cacheDir: string;
-  readonly provider: ProviderDriverKind;
-}): Effect.fn.Return<string, never, Path.Path> {
-  const path = yield* Path.Path;
-  return path.join(input.cacheDir, `${input.provider}.json`);
-});
-
 export const readProviderStatusCache = (filePath: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -130,7 +142,7 @@ export const readProviderStatusCache = (filePath: string) =>
         onFailure: (cause) =>
           Effect.logWarning("failed to parse provider status cache, ignoring", {
             path: filePath,
-            issues: Cause.pretty(cause),
+            errorTag: causeErrorTag(cause),
           }).pipe(Effect.as(undefined)),
         onSuccess: Effect.succeed,
       }),
@@ -140,8 +152,10 @@ export const readProviderStatusCache = (filePath: string) =>
 export const writeProviderStatusCache = (input: {
   readonly filePath: string;
   readonly provider: ServerProvider;
-}) =>
-  writeFileStringAtomically({
+}) => {
+  const { updateState: _updateState, ...cacheableProvider } = input.provider;
+  return writeFileStringAtomically({
     filePath: input.filePath,
-    contents: `${JSON.stringify(input.provider, null, 2)}\n`,
+    contents: `${JSON.stringify(cacheableProvider, null, 2)}\n`,
   });
+};
