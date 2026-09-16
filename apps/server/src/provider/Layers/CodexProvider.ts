@@ -23,7 +23,7 @@ import type {
   ServerProviderModel,
   ServerProviderSkill,
   ServerProviderUsage,
-  ServerProviderUsageWindow,
+  ServerProviderAccountUsageWindow,
 } from "@t3tools/contracts";
 import { PREFERRED_DEFAULT_CODEX_MODELS, ServerSettingsError } from "@t3tools/contracts";
 
@@ -46,7 +46,6 @@ import { makeUnavailableUsageLimits } from "../providerUsageLimits.ts";
 import {
   codexRateLimitsFailureMessage,
   codexRateLimitsToLimits,
-  type CodexRateLimitSnapshot,
   type CodexResetCreditsSummary,
 } from "./codexUsageLimits.ts";
 import packageJson from "../../../package.json" with { type: "json" };
@@ -55,9 +54,9 @@ const RATE_LIMITS_PROBE_TIMEOUT_MS = 3_000;
 
 type CodexRateLimitsProbe =
   | {
-      readonly snapshot: CodexRateLimitSnapshot;
+      readonly snapshot: CodexAccountRateLimitSnapshot;
       readonly rateLimitsByLimitId?:
-        | Readonly<Record<string, CodexRateLimitSnapshot>>
+        | Readonly<Record<string, CodexAccountRateLimitSnapshot>>
         | null
         | undefined;
       readonly resetCredits: CodexResetCreditsSummary | null | undefined;
@@ -99,6 +98,8 @@ const SERVICE_TIER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   ultrafast: "Even faster, more expensive",
 };
 
+type CodexAccountRateLimitSnapshot = CodexSchema.V2GetAccountRateLimitsResponse["rateLimits"];
+
 function formatUsageWindowDuration(durationMinutes: number | null | undefined): string | null {
   if (!durationMinutes || durationMinutes <= 0) return null;
   if (durationMinutes === 7 * 24 * 60) return "Weekly limit";
@@ -119,7 +120,7 @@ function normalizeUsageWindow(input: {
   readonly bucketLabel?: string | null;
   readonly fallbackLabel: string;
   readonly window: CodexSchema.V2GetAccountRateLimitsResponse__RateLimitWindow;
-}): ServerProviderUsageWindow {
+}): ServerProviderAccountUsageWindow {
   const durationLabel = formatUsageWindowDuration(input.window.windowDurationMins);
   const windowLabel = durationLabel ?? input.fallbackLabel;
   const bucketLabel = input.bucketLabel?.trim();
@@ -137,11 +138,11 @@ function normalizeUsageWindow(input: {
 
 function normalizeUsageBucket(
   bucketId: string,
-  bucket: CodexRateLimitSnapshot,
+  bucket: CodexAccountRateLimitSnapshot,
   includeBucketLabel: boolean,
-): ReadonlyArray<ServerProviderUsageWindow> {
+): ReadonlyArray<ServerProviderAccountUsageWindow> {
   const bucketLabel = includeBucketLabel ? (bucket.limitName ?? bucketId) : null;
-  const windows: ServerProviderUsageWindow[] = [];
+  const windows: ServerProviderAccountUsageWindow[] = [];
   if (bucket.primary) {
     windows.push(
       normalizeUsageWindow({
@@ -181,7 +182,7 @@ export function normalizeCodexRateLimits(
   const bucketsById = response.rateLimitsByLimitId
     ? Object.entries(response.rateLimitsByLimitId)
     : [];
-  const buckets: ReadonlyArray<readonly [string, CodexRateLimitSnapshot]> =
+  const buckets: ReadonlyArray<readonly [string, CodexAccountRateLimitSnapshot]> =
     bucketsById.length > 0
       ? bucketsById
       : [[response.rateLimits.limitId?.trim() || "codex", response.rateLimits]];
@@ -612,7 +613,9 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
       : normalizeCodexRateLimits(
           {
             rateLimits: rateLimits.snapshot,
-            rateLimitsByLimitId: rateLimits.rateLimitsByLimitId,
+            ...(rateLimits.rateLimitsByLimitId !== undefined
+              ? { rateLimitsByLimitId: rateLimits.rateLimitsByLimitId }
+              : {}),
           },
           usageUpdatedAt,
         );

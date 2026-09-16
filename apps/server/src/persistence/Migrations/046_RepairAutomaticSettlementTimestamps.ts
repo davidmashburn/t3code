@@ -9,6 +9,14 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 // is how an unrepaired automatic settlement is identified below.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const columns = yield* sql<{ readonly name: string }>`
+    PRAGMA table_info(projection_threads)
+  `;
+  const columnNames = new Set(columns.map((column) => column.name));
+
+  // Fork builds once used migration ID 33 for a different migration, so the
+  // settled columns may not exist until the compatibility repair at ID 54.
+  if (!columnNames.has("settled_override") || !columnNames.has("settled_at")) return;
 
   yield* sql`
     WITH activity_timestamps AS (
