@@ -120,7 +120,7 @@ favor of upstream's structure and quietly dropping fork behavior that lived in t
 - Verify by symbol, not by eye. For each identifier the original commit introduced, compare
   occurrence counts and call sites between the original file and the replayed one.
 
-### Parity check (run for every non-clean pick)
+### Parity check (run for every pick)
 
 ```bash
 git show --numstat --format= -M <ORIG>   # file set + line counts
@@ -136,6 +136,10 @@ original version:
 git show <ORIG>:<path> | rg --text -c '<identifier>'
 rg --text -c '<identifier>' <path>
 ```
+
+After the last pick, also inspect the cumulative diff from the new `origin/main` base to the
+integration tip. Build the test plan from every runtime module, query, schema, and package in that
+diff; a clean cherry-pick is not exempt from focused testing.
 
 ## Step 4 — Rebuild feature PR branches
 
@@ -226,12 +230,46 @@ Recurring shapes worth expecting:
   patch schema over making a field required, which would force edits to upstream test fixtures
   and grow the next relay's conflict surface.
 
-Then the tests for what moved:
+Then the tests for what moved. Select them from the cumulative diff, not just the files that
+conflicted. At minimum, use these triggers when the matching surface changed:
 
 ```bash
+# SQL projections, their row schemas, or session ownership fields
+(cd apps/server && vp test run src/orchestration/Layers/ProjectionSnapshotQuery.test.ts)
+
+# Provider ingestion and transcript/session mirroring
 vp test run apps/server/src/orchestration/Layers/ClaudeSessionMirror.test.ts apps/server/src/provider/ClaudeTranscript.test.ts
+
 vp check --fix <changed files>
 ```
+
+For SQL decoded through an Effect schema, the focused test must execute the query with a
+representative non-null row and assert every required decoded field. Reviewing the TypeScript row
+schema or passing typecheck is insufficient: SQL can omit a required column without a compile-time
+error. In particular, changes involving `getThreadRuntimeContext`, `ProjectionThreadSessionDbRow`,
+or session ownership/control fields must run `ProjectionSnapshotQuery.test.ts`.
+
+### Post-rebuild output smoke test
+
+After `vp run rebuild:desktop:alpha`, do not stop at successful launch. When the cumulative diff
+touches server startup, orchestration, projections, persistence, provider ingestion, or desktop ↔
+server wiring:
+
+1. Record the current byte offsets of `~/.t3/userdata/logs/server.trace.ndjson` and
+   `~/.t3/userdata/logs/desktop.trace.ndjson` so old failures cannot contaminate the result.
+2. In Alpha, create a disposable local thread for an available provider and send a prompt that
+   requires a short, non-empty response.
+3. Confirm the response appears in the thread after the turn finishes. Provider completion alone
+   is not success.
+4. Verify the assistant message is present through the app's read model, or with a read-only query
+   against `projection_thread_messages` in a copied database. Never open the live database
+   read-write for verification.
+5. Inspect only log bytes written after the recorded offsets. Fail the smoke test on
+   `PersistenceDecodeError`, schema `MissingKey`, projection/event-handler failure, or an unhandled
+   server error associated with the disposable thread.
+
+If provider access is unavailable, run the closest automated orchestration integration test and
+report the end-to-end smoke as not run. Do not silently replace it with a launch-only check.
 
 `apps/desktop` tests need a working local Electron binary; a missing one fails the suite before
 any test runs and is not a relay problem.
