@@ -92,4 +92,22 @@ describe("desktop-alpha-mac", () => {
     assert.isTrue(launchdJobIsActive("active count = 0\nstate = spawn scheduled"));
     assert.isFalse(launchdJobIsActive("active count = 0\nstate = not running"));
   });
+
+  it("ignores active coalitions belonging to a completed launchd job", () => {
+    assert.isFalse(
+      launchdJobIsActive(`gui/501/com.example.rebuild = {
+  active count = 0
+  state = not running
+  last exit code = 0
+  resource coalition = {
+    state = active
+    active count = 1
+  }
+  jetsam coalition = {
+    state = active
+    active count = 1
+  }
+}`),
+    );
+  });
 });
