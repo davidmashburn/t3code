@@ -758,7 +758,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`
         UPDATE projection_thread_sessions
         SET status = 'starting', active_turn_id = NULL, provider_name = 'claudeAgent',
-            provider_instance_id = 'claude-secondary', last_error = 'Starting another session'
+            provider_instance_id = 'claude-secondary', last_error = 'Starting another session',
+            origin = 'external', control_mode = 'mirrored'
         WHERE thread_id = 'thread-1'
       `;
       const changedContext = yield* snapshotQuery.getThreadRuntimeContext(
@@ -771,6 +772,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(changedContext.value.session?.providerName, "claudeAgent");
         assert.equal(changedContext.value.session?.providerInstanceId, "claude-secondary");
         assert.equal(changedContext.value.session?.lastError, "Starting another session");
+        assert.equal(changedContext.value.session?.origin, "external");
+        assert.equal(changedContext.value.session?.controlMode, "mirrored");
       }
     }),
   );

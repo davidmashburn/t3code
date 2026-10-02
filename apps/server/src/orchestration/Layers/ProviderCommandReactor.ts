@@ -1796,7 +1796,7 @@ const make = Effect.gen(function* () {
   const processSessionTakeoverRequested = Effect.fn("processSessionTakeoverRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.session-takeover-requested" }>,
   ) {
-    const thread = yield* resolveThread(event.payload.threadId);
+    const thread = yield* resolveThreadShell(event.payload.threadId);
     if (
       !thread?.session ||
       thread.session.origin !== "external" ||
@@ -1806,7 +1806,7 @@ const make = Effect.gen(function* () {
       return;
     }
     yield* ensureSessionForThread(thread.id, event.payload.createdAt);
-    const refreshed = yield* resolveThread(thread.id);
+    const refreshed = yield* resolveThreadShell(thread.id);
     if (!refreshed?.session) return;
     yield* setThreadSession({
       threadId: thread.id,
@@ -1823,7 +1823,7 @@ const make = Effect.gen(function* () {
   const processSessionReleaseRequested = Effect.fn("processSessionReleaseRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.session-release-requested" }>,
   ) {
-    const thread = yield* resolveThread(event.payload.threadId);
+    const thread = yield* resolveThreadShell(event.payload.threadId);
     if (
       !thread?.session ||
       thread.session.origin !== "external" ||

@@ -23,7 +23,7 @@ export function ProviderUsageDetails(props: { usage: ServerProviderUsage; classN
   return (
     <div className={cn("grid gap-3", props.className)}>
       {props.usage.limitReached ? (
-        <p className="rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] font-medium text-destructive">
+        <p className="rounded-md bg-destructive/10 px-2 py-1.5 text-2xs font-medium text-destructive">
           {formatLimitReached(props.usage.limitReached)}
         </p>
       ) : null}
@@ -31,7 +31,7 @@ export function ProviderUsageDetails(props: { usage: ServerProviderUsage; classN
         const percentage = Math.max(0, Math.min(100, window.usedPercent));
         return (
           <div key={window.id} className="grid gap-1.5">
-            <div className="flex items-baseline justify-between gap-3 text-[11px]">
+            <div className="flex items-baseline justify-between gap-3 text-2xs">
               <span className="min-w-0 truncate font-medium text-muted-foreground">
                 {window.label}
               </span>
@@ -53,7 +53,7 @@ export function ProviderUsageDetails(props: { usage: ServerProviderUsage; classN
               />
             </div>
             {window.resetsAt ? (
-              <span className="text-[10px] text-muted-foreground/60">
+              <span className="text-3xs text-muted-foreground/60">
                 Resets {formatRelativeTimeUntilLabel(window.resetsAt)}
               </span>
             ) : null}
@@ -61,7 +61,7 @@ export function ProviderUsageDetails(props: { usage: ServerProviderUsage; classN
         );
       })}
       {props.usage.credits ? (
-        <div className="flex items-center justify-between gap-3 border-border/60 border-t pt-2 text-[11px]">
+        <div className="flex items-center justify-between gap-3 border-border/60 border-t pt-2 text-2xs">
           <span className="text-muted-foreground/60">Credits</span>
           <span className="font-medium tabular-nums text-muted-foreground/80">
             {props.usage.credits.unlimited
@@ -105,7 +105,7 @@ export function ProviderUsageMeter(props: {
           </button>
         }
       />
-      <PopoverPopup tooltipStyle side="top" align="end" className="w-64 max-w-none p-0">
+      <PopoverPopup tooltipStyle padding="none" side="top" align="end" className="w-64 max-w-none">
         <div className="grid gap-3 p-3">
           <div className="font-medium text-muted-foreground text-xs">{providerName} usage</div>
           <ProviderUsageDetails usage={props.usage} />

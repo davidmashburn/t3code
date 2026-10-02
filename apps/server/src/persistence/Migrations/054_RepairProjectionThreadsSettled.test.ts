@@ -6,7 +6,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
-const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 const settledColumns = Effect.fn("settledColumns")(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -32,7 +32,7 @@ layer("054_RepairProjectionThreadsSettled", (it) => {
 
       assert.deepEqual(yield* settledColumns(), []);
 
-      yield* runMigrations({ toMigrationInclusive: 54 });
+      yield* runMigrations({ toMigrationInclusive: 56 });
 
       assert.deepEqual(yield* settledColumns(), [
         { name: "settled_override", notnull: 0 },

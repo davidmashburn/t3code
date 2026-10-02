@@ -724,7 +724,7 @@ export function ProviderInstanceCard({
             </span>
             {liveProvider?.usage ? (
               <div className="mt-3 max-w-md rounded-md border border-border/60 bg-muted/20 p-3">
-                <p className="mb-2 text-[11px] font-semibold text-foreground">Account usage</p>
+                <p className="mb-2 text-2xs font-semibold text-foreground">Account usage</p>
                 <ProviderUsageDetails usage={liveProvider.usage} />
               </div>
             ) : null}
