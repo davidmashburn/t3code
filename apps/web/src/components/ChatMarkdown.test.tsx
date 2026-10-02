@@ -52,6 +52,9 @@ vi.mock("../editorPreferences", () => ({
   useOpenInPreferredEditor: () => vi.fn(),
   usePreferredEditor: () => [null, vi.fn()],
 }));
+vi.mock("./chat/MermaidDiagram", () => ({
+  MermaidDiagram: ({ code }: { code: string }) => <div data-mermaid-diagram="">{code}</div>,
+}));
 vi.mock("~/lib/openPullRequestLink", () => ({
   findProjectOnChangeRequestHost: () => undefined,
   parseChangeRequestUrl: () => null,
@@ -72,6 +75,22 @@ function codeButton(renderer: ReactTestRenderer, label: string) {
   if (!button) throw new Error(`Missing code button: ${label}`);
   return button.props as ComponentProps<typeof Button>;
 }
+
+describe("ChatMarkdown Mermaid fences", () => {
+  const diagram = "```mermaid\ngraph TD\n  A --> B\n```";
+
+  it("renders Mermaid only when the document preview opts in", () => {
+    const rendered = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text={diagram} renderMermaid />,
+    );
+    const ordinary = renderToStaticMarkup(<ChatMarkdown cwd="/tmp/project" text={diagram} />);
+
+    expect(rendered).toContain("data-mermaid-diagram");
+    expect(rendered).toContain("graph TD");
+    expect(ordinary).not.toContain("data-mermaid-diagram");
+    expect(ordinary).toContain("graph TD");
+  });
+});
 
 describe("ChatMarkdown context references", () => {
   it("renders text and image references through the chip renderer, with readable fallback", async () => {

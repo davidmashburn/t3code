@@ -554,6 +554,10 @@
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
       }
+    },
+    {
+      "license": "MIT",
+      "name": "khroma"
     }
   ]
 }

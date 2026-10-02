@@ -198,6 +198,7 @@ import {
 } from "../browser/openFileInPreview";
 import { resolveLinkTarget } from "../browser/browserLinkTarget";
 import { PullRequestLinkPreview } from "./pullRequest/PullRequestLinkPreview";
+import { MermaidDiagram } from "./chat/MermaidDiagram";
 
 interface ChatMarkdownProps {
   text: string;
@@ -215,6 +216,8 @@ interface ChatMarkdownProps {
   lineBreaks?: boolean;
   /** Parse sanitized raw HTML instead of displaying its source text. */
   parseRawHtml?: boolean;
+  /** Render Mermaid fences as diagrams. Intended for complete Markdown documents. */
+  renderMermaid?: boolean;
   searchQuery?: string;
   /** Append a prompt that invokes a newly created artifact-template skill. */
   onUseArtifactTemplate?: ((template: CodexArtifactTemplate) => void) | undefined;
@@ -2304,6 +2307,7 @@ function useChatMarkdownState({
   imageBaseDir,
   onImageExpand,
   renderContextReference,
+  renderMermaid = false,
   headingLevelOffset = 0,
   githubMedia = false,
 }: ChatMarkdownProps) {
@@ -2699,6 +2703,7 @@ function useChatMarkdownState({
       fileLinkChip,
       githubMedia,
       renderContextReference,
+      renderMermaid,
       headingLevelOffset,
       imageBaseDir,
       inlineCodeFileLinkMetaByText,
@@ -2730,6 +2735,7 @@ function useChatMarkdownState({
       fileLinkChip,
       githubMedia,
       renderContextReference,
+      renderMermaid,
       headingLevelOffset,
       imageBaseDir,
       inlineCodeFileLinkMetaByText,
@@ -3273,9 +3279,8 @@ const CHAT_MARKDOWN_COMPONENTS = {
     return <MarkdownDetails open={detailsOpen}>{children}</MarkdownDetails>;
   },
   pre: function MarkdownPre({ node, children, ...props }) {
-    const { resolvedTheme, diffThemeName, isStreaming, onRunShellCommand, text } = use(
-      ChatMarkdownRendererContext,
-    );
+    const { resolvedTheme, diffThemeName, isStreaming, onRunShellCommand, text, renderMermaid } =
+      use(ChatMarkdownRendererContext);
     const codeBlock = extractCodeBlock(children);
     if (!codeBlock) {
       return <pre {...props}>{children}</pre>;
@@ -3283,6 +3288,14 @@ const CHAT_MARKDOWN_COMPONENTS = {
 
     const language = extractFenceLanguage(codeBlock.className);
     const fenceTitle = extractFenceTitle(extractPreCodeMeta(node));
+    const highlightedCode = (
+      <SuspenseShikiCodeBlock
+        className={codeBlock.className}
+        code={codeBlock.code}
+        themeName={diffThemeName}
+        isStreaming={isStreaming}
+      />
+    );
     return (
       <MarkdownCodeBlock
         code={codeBlock.code}
@@ -3309,12 +3322,15 @@ const CHAT_MARKDOWN_COMPONENTS = {
               </pre>
             }
           >
-            <SuspenseShikiCodeBlock
-              className={codeBlock.className}
-              code={codeBlock.code}
-              themeName={diffThemeName}
-              isStreaming={isStreaming}
-            />
+            {renderMermaid && !isStreaming && language.toLowerCase() === "mermaid" ? (
+              <MermaidDiagram
+                code={codeBlock.code}
+                fallback={highlightedCode}
+                theme={resolvedTheme}
+              />
+            ) : (
+              highlightedCode
+            )}
           </Suspense>
         </RenderErrorBoundary>
       </MarkdownCodeBlock>

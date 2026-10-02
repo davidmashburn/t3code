@@ -47,6 +47,11 @@ vi.mock("~/lib/openPullRequestLink", () => ({
   resolvePullRequestPreviewTarget: () => null,
   useOpenChangeRequestLink: () => vi.fn(),
 }));
+vi.mock("./chat/MermaidDiagram", () => ({
+  MermaidDiagram: ({ code }: { readonly code: string }) => (
+    <div data-testid="mermaid-diagram">{code}</div>
+  ),
+}));
 
 import ChatMarkdown, { ChatMarkdownAssetImage } from "./ChatMarkdown";
 import { FileMarkdownPreview } from "./files/FileMarkdownPreview";
@@ -66,14 +71,13 @@ function renderWithoutThread(markdown: string): string {
   return renderToStaticMarkup(<ChatMarkdown cwd={"C:\\Users\\shawn\\project"} text={markdown} />);
 }
 
-function renderFilePreview(cwd: string, relativePath: string): string {
+function renderFilePreview(
+  cwd: string,
+  relativePath: string,
+  text = "![diagram](images/diagram.png)",
+): string {
   return renderToStaticMarkup(
-    <FileMarkdownPreview
-      cwd={cwd}
-      relativePath={relativePath}
-      text="![diagram](images/diagram.png)"
-      threadRef={threadRef}
-    />,
+    <FileMarkdownPreview cwd={cwd} relativePath={relativePath} text={text} threadRef={threadRef} />,
   );
 }
 
@@ -99,6 +103,17 @@ describe("ChatMarkdown workspace images", () => {
     testState.resources = [];
     testState.assetState = "success";
     testState.imageDimensions = undefined;
+  });
+
+  it("renders Mermaid fences in file previews", () => {
+    const html = renderFilePreview(
+      "/workspace/project",
+      "docs/README.md",
+      "```mermaid\ngraph TD\n  A --> B\n```",
+    );
+
+    expect(html).toContain('data-testid="mermaid-diagram"');
+    expect(html).toContain("graph TD");
   });
 
   it.each([
