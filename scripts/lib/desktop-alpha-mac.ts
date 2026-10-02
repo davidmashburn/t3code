@@ -61,10 +61,10 @@ ${argumentsXml}
 }
 
 export function launchdJobIsActive(output: string): boolean {
-  return (
-    /\bstate = (?:running|spawn scheduled)\b/u.test(output) ||
-    /\bactive count = [1-9]\d*\b/u.test(output)
-  );
+  // The job fields precede nested coalition fields, whose active counts can stay nonzero.
+  const state = output.match(/\bstate = ([^\r\n]+)/u)?.[1].trim();
+  const activeCount = Number(output.match(/\bactive count = (\d+)/u)?.[1] ?? 0);
+  return state === "running" || state === "spawn scheduled" || activeCount > 0;
 }
 
 export function desktopTraceLogPath(homeDirectory = NodeOS.homedir()): string {
@@ -182,7 +182,6 @@ export function assertMacPlatform(
 export function quitDesktopChannelApps(): void {
   runCheckedIgnoreMissing("osascript", ["-e", `tell application "${ALPHA_APP_NAME}" to quit`]);
   runCheckedIgnoreMissing("osascript", ["-e", `tell application "${NIGHTLY_APP_NAME}" to quit`]);
-  runCheckedIgnoreMissing("pkill", ["-f", "T3 Code"]);
 }
 
 export function mountDmg(dmgPath: string): string {
