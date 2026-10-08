@@ -38,7 +38,8 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
-import { checkClaudeProviderStatus, normalizeClaudeRateLimits } from "./ClaudeProvider.ts";
+import type { SDKControlGetUsageResponse } from "@anthropic-ai/claude-agent-sdk";
+import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { AntigravityInstallation } from "../AntigravityInstallation.ts";
 import * as ModelManifest from "../ModelManifest.ts";
@@ -156,7 +157,7 @@ type TestClaudeCapabilities = {
   readonly apiProvider: string | undefined;
   readonly usage?: {
     readonly rate_limits_available: boolean;
-    readonly rate_limits: Parameters<typeof normalizeClaudeRateLimits>[0] | null;
+    readonly rate_limits: SDKControlGetUsageResponse["rate_limits"];
   };
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
 };
@@ -2765,10 +2766,10 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
           assert.strictEqual(status.installed, true);
           assert.strictEqual(status.auth.status, "authenticated");
           assert.deepStrictEqual(
-            status.usage?.windows.map(({ label, usedPercent }) => ({ label, usedPercent })),
+            status.usageLimits?.windows.map(({ label, usedPercent }) => ({ label, usedPercent })),
             [
-              { label: "5-hour limit", usedPercent: 35 },
-              { label: "Weekly limit", usedPercent: 68 },
+              { label: "Session", usedPercent: 35 },
+              { label: "Weekly", usedPercent: 68 },
             ],
           );
         }).pipe(
