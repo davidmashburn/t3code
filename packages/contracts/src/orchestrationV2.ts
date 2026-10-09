@@ -353,7 +353,16 @@ export const OrchestrationV2LimitRecoveryUpdate = Schema.Struct({
 );
 export type OrchestrationV2LimitRecoveryUpdate = typeof OrchestrationV2LimitRecoveryUpdate.Type;
 
+export const OrchestrationV2ExternalSession = Schema.Struct({
+  sessionId: TrimmedNonEmptyString,
+  controlMode: Schema.Literals(["mirrored", "owned"]),
+  running: Schema.Boolean,
+  /** Last T3-owned transcript boundary, including V1 turns without V2 run records. */
+  ownedThrough: Schema.optional(IsoDateTime),
+});
+
 export const OrchestrationV2AppThread = Schema.Struct({
+  externalSession: Schema.optional(OrchestrationV2ExternalSession),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
@@ -1790,6 +1799,7 @@ export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
 export const OrchestrationV2ThreadShell = Schema.Struct({
+  externalSession: Schema.optional(OrchestrationV2ExternalSession),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
@@ -2545,7 +2555,14 @@ export type OrchestrationV2StoredEventJson = typeof OrchestrationV2StoredEventJs
 
 export const OrchestrationV2Command = Schema.Union([
   Schema.Struct({
+    type: Schema.Literal("thread.external.control"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    controlMode: Schema.Literals(["mirrored", "owned"]),
+  }),
+  Schema.Struct({
     type: Schema.Literal("thread.create"),
+    externalSession: Schema.optional(OrchestrationV2ExternalSession),
     ...OrchestrationV2CreationFields,
     commandId: CommandId,
     threadId: ThreadId,
@@ -2980,6 +2997,16 @@ export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
  * send them.
  */
 const OrchestrationV2InternalCommand = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("thread.external.observe"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    externalSession: OrchestrationV2ExternalSession,
+    providerThread: OrchestrationV2ProviderThread,
+    messages: Schema.Array(OrchestrationV2ConversationMessage),
+    turnItems: Schema.Array(OrchestrationV2TurnItem),
+    title: Schema.optional(Schema.String),
+  }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request-watch.sync"),
     commandId: CommandId,

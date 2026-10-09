@@ -118,6 +118,7 @@ describe("ProviderSettingsForm helpers", () => {
       "homePath",
       "autoCompactWindow",
       "launchArgs",
+      "mirrorExternalSessions",
     ]);
   });
 

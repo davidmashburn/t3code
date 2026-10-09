@@ -262,6 +262,7 @@ import { shortcutLabelForCommand } from "../keybindings";
 import { PersistentThreadTerminalDrawer } from "./PersistentThreadTerminals";
 import {
   AlarmClockIcon,
+  InfoIcon,
   CheckCircle2Icon,
   MessageCircleIcon,
   PaperclipIcon,
@@ -1050,6 +1051,11 @@ export default function ChatView(props: ChatViewProps) {
       currentRouteThreadKeyRef.current = null;
     };
   }, [routeThreadKey]);
+  const setExternalControl = useOrchestrationCommand(threadEnvironment.setExternalControl);
+  const canSetExternalControl = useAtomValue(
+    threadEnvironment.setExternalControl.permissionAtom(environmentId),
+  );
+  const [changingExternalControl, setChangingExternalControl] = useState(false);
   const createThread = useOrchestrationCommand(threadEnvironment.create, { reportFailure: false });
   const deleteThread = useOrchestrationCommand(threadEnvironment.delete, { reportFailure: false });
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
@@ -1579,6 +1585,11 @@ export default function ChatView(props: ChatViewProps) {
     widthStorageKey: `t3code:preview-panel-width:${activeThreadKey}`,
   });
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
+  const externalSession = activeThreadShell?.externalSession;
+  const isExternalReadOnly = externalSession?.controlMode === "mirrored";
+  const externalReadOnlyReason = isExternalReadOnly
+    ? "Mirroring an external Claude session. Take over to send messages."
+    : null;
   const timelineThreadError =
     serverRuntime?.status === "failed" &&
     serverRuntime.lastErrorClass === "usage_limit" &&
@@ -5342,6 +5353,7 @@ export default function ChatView(props: ChatViewProps) {
     providerStatuses,
   );
   const compactThreadUnavailable =
+    isExternalReadOnly ||
     !canOperateThread ||
     !activeThread ||
     !activeThreadHasCompactableConversation ||
@@ -5437,7 +5449,57 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const externalSessionBanner = (() => {
+    if (!externalSession || !activeThreadShell) return null;
+    const blocked = isExternalReadOnly
+      ? externalSession.running
+      : isWorking || activeThreadShell.runtime?.status === "queued" || hasHeldQueuedRuns;
+    return {
+      id: "external-claude-session",
+      variant: "info",
+      priority: "activity",
+      icon: <InfoIcon />,
+      title: isExternalReadOnly
+        ? "Mirroring external Claude session"
+        : "T3 controls this Claude session",
+      description: isExternalReadOnly
+        ? externalSession.running
+          ? "Wait for the external turn to finish before taking over."
+          : "Take over here after stopping work in the external client."
+        : "Release control to resume mirroring the external client.",
+      actions: (
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={!canSetExternalControl || changingExternalControl || blocked}
+          onClick={async () => {
+            setChangingExternalControl(true);
+            try {
+              await setExternalControl({
+                environmentId,
+                input: {
+                  type: "thread.external.control",
+                  commandId: CommandId.make(randomUUID()),
+                  threadId: activeThreadShell.id,
+                  controlMode: isExternalReadOnly ? "owned" : "mirrored",
+                },
+              });
+            } finally {
+              setChangingExternalControl(false);
+            }
+          }}
+        >
+          {changingExternalControl
+            ? "Updating…"
+            : isExternalReadOnly
+              ? "Take over"
+              : "Release control"}
+        </Button>
+      ),
+    };
+  })() as ComposerBannerStackItem | null;
   const composerBannerItems = (() => {
+    const externalSessionItems = externalSessionBanner ? [externalSessionBanner] : [];
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
     const backgroundWorkItems = [
       childInputBannerItem,
@@ -5448,6 +5510,7 @@ export default function ChatView(props: ChatViewProps) {
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
+        ...externalSessionItems,
         ...feedbackBannerItems,
         ...limitRecoveryItems,
         ...usageLimitsItems,
@@ -5457,6 +5520,7 @@ export default function ChatView(props: ChatViewProps) {
       ];
     }
     return [
+      ...externalSessionItems,
       ...feedbackBannerItems,
       ...limitRecoveryItems,
       ...usageLimitsItems,
@@ -6042,6 +6106,7 @@ export default function ChatView(props: ChatViewProps) {
     },
   ) => {
     e?.preventDefault();
+    if (isExternalReadOnly) return;
     if (
       usageLimitsOffered &&
       usageLimitsKey !== null &&
@@ -8299,7 +8364,7 @@ export default function ChatView(props: ChatViewProps) {
                           ) : null}
                           {!composerMounted ? null : (
                             <ChatComposer
-                              canOperateThread={canOperateThread}
+                              canOperateThread={canOperateThread && !isExternalReadOnly}
                               reportedModelSelection={reportedModelSelection}
                               multipleModelSelections={multipleModelSelections}
                               supportsMultipleModels={
@@ -8344,7 +8409,8 @@ export default function ChatView(props: ChatViewProps) {
                               canResume={resumableRunId !== null || hasHeldQueuedRuns}
                               isRevertingCheckpoint={isRevertingCheckpoint}
                               sendDisabledReason={
-                                !canOperateThread
+                                externalReadOnlyReason ??
+                                (!canOperateThread
                                   ? "This connection cannot change threads."
                                   : isEnvironmentChanging
                                     ? "Preparing machine"
@@ -8356,7 +8422,7 @@ export default function ChatView(props: ChatViewProps) {
                                           ? "Messages loading"
                                           : worktreeSetupBlocksSend
                                             ? "Preparing worktree"
-                                            : projectCloneSendBlockReason
+                                            : projectCloneSendBlockReason)
                               }
                               isPreparingWorktree={isPreparingWorktree && !sendQueuesBehindSetup}
                               queuedRunsControl={queuedRunsControl}

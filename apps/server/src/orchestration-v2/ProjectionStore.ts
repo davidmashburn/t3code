@@ -1492,6 +1492,9 @@ export function threadShellFromProjection(
     pullRequests: projection.thread.pullRequests,
   });
   return {
+    ...(projection.thread.externalSession === undefined
+      ? {}
+      : { externalSession: projection.thread.externalSession }),
     createdBy: projection.thread.createdBy,
     creationSource: projection.thread.creationSource,
     id: projection.thread.id,
@@ -1527,7 +1530,11 @@ export function threadShellFromProjection(
     activityRunStatus: activityRun?.status ?? null,
     activityRunStartedAt:
       activityRun === null ? null : orchestrationV2RunWorkStartedAt(activityRun),
-    status: latestRun?.status ?? "idle",
+    status:
+      projection.thread.externalSession?.controlMode === "mirrored" &&
+      projection.thread.externalSession.running
+        ? "running"
+        : (latestRun?.status ?? "idle"),
     ...threadErrorSummary(
       latestRootProviderFailure(latestRun, projection.turnItems),
       providerSession?.lastError ?? null,
@@ -1749,6 +1756,9 @@ function shellFromState(input: {
   readonly visibleItemCount: number;
 }): OrchestrationV2ThreadShell {
   return {
+    ...(input.state.thread.externalSession === undefined
+      ? {}
+      : { externalSession: input.state.thread.externalSession }),
     createdBy: input.state.thread.createdBy,
     creationSource: input.state.thread.creationSource,
     id: input.state.thread.id,
@@ -1783,7 +1793,11 @@ function shellFromState(input: {
     activeRunId: input.state.activeRunId,
     activityRunStatus: input.state.activityRunStatus,
     activityRunStartedAt: input.state.activityRunStartedAt,
-    status: input.state.latestRunStatus,
+    status:
+      input.state.thread.externalSession?.controlMode === "mirrored" &&
+      input.state.thread.externalSession.running
+        ? "running"
+        : input.state.latestRunStatus,
     lastError: input.state.lastError,
     lastErrorClass: input.state.lastErrorClass,
     usageLimitResetAt: input.state.usageLimitResetAt,
