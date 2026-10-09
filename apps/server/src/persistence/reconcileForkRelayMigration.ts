@@ -63,6 +63,17 @@ export const reconcileForkRelayMigration = Effect.fn("reconcileForkRelayMigratio
         }
       }
       if (collided(56, "RepairForkRelaySchema")) yield* RemoveRedundantProjectionIndexes;
-    }),
+    }).pipe(
+      Effect.catchTags({
+        SchemaError: (cause) =>
+          Effect.fail(
+            new Migrator.MigrationError({
+              kind: "Failed",
+              message: "Cannot decode legacy data while reconciling fork migrations.",
+              cause,
+            }),
+          ),
+      }),
+    ),
   );
 });
