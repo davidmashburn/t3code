@@ -591,6 +591,7 @@ describe("CodexAdapterV2 runtime policy", () => {
     Effect.gen(function* () {
       const params = yield* CodexAdapterV2.buildCodexTurnStartParams({
         nativeThreadId: "native-model-options",
+        allowFastServiceTier: true,
         codexInput: [{ type: "text", text: "test" }],
         runtimePolicy: {
           runtimeMode: "full-access",
@@ -615,6 +616,18 @@ describe("CodexAdapterV2 runtime policy", () => {
       assert.equal(params.collaborationMode?.settings.model, "gpt-5.4");
       assert.equal(params.collaborationMode?.settings.reasoning_effort, "xhigh");
 
+      const gated = yield* CodexAdapterV2.buildCodexTurnStartParams({
+        nativeThreadId: "native-model-options",
+        codexInput: [{ type: "text", text: "test" }],
+        runtimePolicy: { runtimeMode: "full-access", interactionMode: "default", cwd: null },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.4",
+          options: [{ id: "serviceTier", value: "priority" }],
+        },
+      });
+      assert.equal(gated.serviceTier, undefined);
+
       // ChatGPT token sharing rejects service tiers, so managed sessions drop a stale pick.
       const managed = yield* CodexAdapterV2.buildCodexTurnStartParams({
         nativeThreadId: "native-model-options",
@@ -630,6 +643,7 @@ describe("CodexAdapterV2 runtime policy", () => {
           options: [{ id: "serviceTier", value: "priority" }],
         },
         omitServiceTier: true,
+        allowFastServiceTier: true,
       });
       assert.equal(managed.serviceTier, undefined);
     }),

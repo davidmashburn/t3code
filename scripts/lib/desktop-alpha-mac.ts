@@ -62,7 +62,7 @@ ${argumentsXml}
 
 export function launchdJobIsActive(output: string): boolean {
   // The job fields precede nested coalition fields, whose active counts can stay nonzero.
-  const state = output.match(/\bstate = ([^\r\n]+)/u)?.[1].trim();
+  const state = output.match(/\bstate = ([^\r\n]+)/u)?.[1]?.trim();
   const activeCount = Number(output.match(/\bactive count = (\d+)/u)?.[1] ?? 0);
   return state === "running" || state === "spawn scheduled" || activeCount > 0;
 }

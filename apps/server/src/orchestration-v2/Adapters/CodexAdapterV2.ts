@@ -708,6 +708,7 @@ export function buildCodexTurnStartParams(input: {
   readonly deviceToolsAvailable?: boolean;
   /** ChatGPT token sharing does not accept service tiers. */
   readonly omitServiceTier?: boolean;
+  readonly allowFastServiceTier?: boolean;
   /** What the thread's MCP Apps want the agent to know (`ui/update-model-context`). */
   readonly appContext?: ProviderAdapter.ProviderAdapterV2TurnInput["appContext"];
 }) {
@@ -730,7 +731,9 @@ export function buildCodexTurnStartParams(input: {
     const serviceTier =
       input.omitServiceTier === true
         ? undefined
-        : getCodexServiceTierOptionValue(input.modelSelection);
+        : getCodexServiceTierOptionValue(input.modelSelection, {
+            allowFastServiceTier: input.allowFastServiceTier === true,
+          });
     const developerInstructions =
       input.hasT3Mcp !== true
         ? undefined
@@ -6181,6 +6184,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
               deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
+              allowFastServiceTier: adapterOptions.settings.allowFastServiceTier,
               ...(turnInput.appContext === undefined ? {} : { appContext: turnInput.appContext }),
             });
             yield* Ref.update(pendingRootTurns, (current) => {
