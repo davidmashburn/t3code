@@ -3,10 +3,16 @@
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { make as makeJsonSchemaGenerator } from "@effect/openapi-generator/JsonSchemaGenerator";
-import { Effect, FileSystem, Layer, Logger, Path, Schema } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
+import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
+import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-const UPSTREAM_REF = "be75785504ff152fa6333e380a2d50642f42fba0";
+const UPSTREAM_REF = "687a119f0fcaace47e1f1abcc77cec6c813fd6da";
 const USER_AGENT = "effect-codex-app-server-generator";
 const GITHUB_API_BASE =
   "https://api.github.com/repos/openai/codex/contents/codex-rs/app-server-protocol";
@@ -20,6 +26,15 @@ const GithubContentEntries = Schema.Array(
   }),
 );
 type GithubContentEntry = (typeof GithubContentEntries.Type)[number];
+
+const JsonSchemaDocument = Schema.StructWithRest(
+  Schema.Struct({
+    definitions: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
+  }),
+  [Schema.Record(Schema.String, Schema.Json)],
+);
+const decodeGithubContentEntries = Schema.decodeEffect(Schema.fromJsonString(GithubContentEntries));
+const decodeJsonSchemaDocument = Schema.decodeEffect(Schema.fromJsonString(JsonSchemaDocument));
 
 interface GeneratedPaths {
   readonly generatedDir: string;
@@ -41,16 +56,16 @@ interface JsonSchemaFile {
   readonly qualifiedName: string;
 }
 
-class GeneratorError extends Schema.TaggedErrorClass<GeneratorError>()("GeneratorError", {
+class GeneratorError extends Schema.TaggedError<GeneratorError>()("GeneratorError", {
   detail: Schema.String,
-  cause: Schema.optional(Schema.Defect),
+  cause: Schema.optional(Schema.Defect()),
 }) {
   override get message() {
     return this.detail;
   }
 }
 
-const ManualSchemas: Record<string, typeof Schema.Json.Type> = {
+const ManualSchemas: Record<string, Schema.Json> = {
   GetAuthStatusParams: {
     type: "object",
     title: "GetAuthStatusParams",
@@ -125,6 +140,13 @@ const ManualSchemas: Record<string, typeof Schema.Json.Type> = {
   },
 };
 
+// Codex adds plan slugs between our protocol refreshes (0.159 added `promax`).
+// T3 Code only uses the plan for labels, so an unknown slug must not fail the
+// whole `account/read` decode and take the provider down with it.
+const DefinitionOverrides: Record<string, Schema.Json> = {
+  PlanType: { type: "string" },
+};
+
 const getGeneratedPaths = Effect.fn("getGeneratedPaths")(function* () {
   const path = yield* Path.Path;
   const generatedDir = path.join(import.meta.dirname, "..", "src", "_generated");
@@ -143,45 +165,29 @@ const ensureGeneratedDir = Effect.fn("ensureGeneratedDir")(function* () {
 });
 
 const fetchText = Effect.fn("fetchText")(function* (url: string) {
-  const response = yield* Effect.tryPromise({
-    try: () =>
-      fetch(url, {
-        headers: {
-          "user-agent": USER_AGENT,
-        },
-      }),
-    catch: (cause) =>
-      new GeneratorError({
-        detail: `Failed to fetch ${url}`,
-        cause,
-      }),
-  });
-
-  if (!response.ok) {
-    const detail = yield* Effect.tryPromise({
-      try: () => response.text(),
-      catch: () => "",
-    });
-    return yield* Effect.fail(
-      new GeneratorError({
-        detail: `Failed to download ${url}: ${response.status} ${detail}`,
-      }),
-    );
-  }
-
-  return yield* Effect.tryPromise({
-    try: () => response.text(),
-    catch: (cause) =>
-      new GeneratorError({
-        detail: `Failed to read response body for ${url}`,
-        cause,
-      }),
-  });
+  // Unauthenticated GitHub API calls are capped at 60/hour; set GITHUB_TOKEN to lift that.
+  const token = process.env.GITHUB_TOKEN;
+  return yield* HttpClientRequest.get(url).pipe(
+    HttpClientRequest.setHeader("user-agent", USER_AGENT),
+    token && url.startsWith("https://api.github.com/")
+      ? HttpClientRequest.bearerToken(token)
+      : (request) => request,
+    HttpClient.execute,
+    Effect.flatMap(HttpClientResponse.filterStatusOk),
+    Effect.flatMap((okResponse) => okResponse.text),
+    Effect.mapError(
+      (cause) =>
+        new GeneratorError({
+          detail: `Failed to fetch ${url}`,
+          cause,
+        }),
+    ),
+  );
 });
 
 const fetchDirectoryEntries = Effect.fn("fetchDirectoryEntries")(function* (path: string) {
   const raw = yield* fetchText(`${GITHUB_API_BASE}/${path}?ref=${UPSTREAM_REF}`);
-  return yield* Schema.decodeEffect(Schema.fromJsonString(GithubContentEntries))(raw);
+  return yield* decodeGithubContentEntries(raw);
 });
 
 function collectSchemaEntries(
@@ -219,7 +225,7 @@ function collectSchemaEntries(
   return entries;
 }
 
-function normalizeNullableTypes(value: typeof Schema.Json.Type): typeof Schema.Json.Type {
+function normalizeNullableTypes(value: Schema.Json): Schema.Json {
   if (Array.isArray(value)) {
     return value.map(normalizeNullableTypes);
   }
@@ -231,10 +237,7 @@ function normalizeNullableTypes(value: typeof Schema.Json.Type): typeof Schema.J
     key,
     normalizeNullableTypes(child),
   ]);
-  const normalizedObject = Object.fromEntries(normalizedEntries) as Record<
-    string,
-    typeof Schema.Json.Type
-  >;
+  const normalizedObject = Object.fromEntries(normalizedEntries) as Record<string, Schema.Json>;
   const typeValue = normalizedObject.type;
 
   if (!Array.isArray(typeValue)) {
@@ -252,7 +255,7 @@ function normalizeNullableTypes(value: typeof Schema.Json.Type): typeof Schema.J
   }
   const nonNullType = nonNullTypes[0]!;
 
-  const nextObject: Record<string, typeof Schema.Json.Type> = {};
+  const nextObject: Record<string, Schema.Json> = {};
   for (const [key, child] of Object.entries(normalizedObject)) {
     if (key !== "type") {
       nextObject[key] = child;
@@ -270,7 +273,7 @@ function normalizeNullableTypes(value: typeof Schema.Json.Type): typeof Schema.J
   };
 }
 
-function stripNullDefaults(value: typeof Schema.Json.Type): typeof Schema.Json.Type {
+function stripNullDefaults(value: Schema.Json): Schema.Json {
   if (Array.isArray(value)) {
     return value.map(stripNullDefaults);
   }
@@ -282,7 +285,85 @@ function stripNullDefaults(value: typeof Schema.Json.Type): typeof Schema.Json.T
     Object.entries(value)
       .filter(([key, child]) => !(key === "default" && child === null))
       .map(([key, child]) => [key, stripNullDefaults(child)]),
-  ) as typeof Schema.Json.Type;
+  ) as Schema.Json;
+}
+
+type JsonSchemaNode = { readonly [key: string]: Schema.Json };
+
+function isJsonSchemaNode(value: Schema.Json | undefined): value is JsonSchemaNode {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+// Adapts Codex's JSON Schema to Effect's importer, visiting only schema
+// positions so a field literally named "properties" is left alone:
+// - Effect imports an object without additionalProperties as an open record.
+//   Codex omits it for plain structs, so close objects that list properties.
+// - Effect cannot intersect shared object fields with object alternatives,
+//   which Codex uses for "one of these keys plus shared fields"
+//   (image_url | file_id). Fold the shared fields into each alternative.
+function adaptSchemaForEffect(value: Schema.Json): Schema.Json {
+  if (!isJsonSchemaNode(value)) {
+    return value;
+  }
+  const node: Record<string, Schema.Json> = { ...value };
+  for (const key of ["items", "additionalProperties"]) {
+    const child = node[key];
+    if (isJsonSchemaNode(child)) node[key] = adaptSchemaForEffect(child);
+  }
+  for (const key of ["anyOf", "oneOf", "allOf"]) {
+    const child = node[key];
+    if (Array.isArray(child)) node[key] = child.map(adaptSchemaForEffect);
+  }
+  for (const key of ["properties", "definitions"]) {
+    const child = node[key];
+    if (isJsonSchemaNode(child)) {
+      node[key] = Object.fromEntries(
+        Object.entries(child).map(([name, schema]) => [name, adaptSchemaForEffect(schema)]),
+      );
+    }
+  }
+
+  const { properties } = node;
+  if (
+    isJsonSchemaNode(properties) &&
+    Object.keys(properties).length > 0 &&
+    !("additionalProperties" in node)
+  ) {
+    node.additionalProperties = false;
+  }
+
+  const alternativesKey = "anyOf" in node ? "anyOf" : "oneOf";
+  const alternatives = node[alternativesKey];
+  if (
+    !isJsonSchemaNode(properties) ||
+    !Array.isArray(alternatives) ||
+    !alternatives.every(
+      (alternative) => isJsonSchemaNode(alternative) && alternative.type === "object",
+    )
+  ) {
+    return node;
+  }
+  const {
+    properties: _shared,
+    required,
+    type: _type,
+    additionalProperties: _closed,
+    ...rest
+  } = node;
+  const sharedRequired = Array.isArray(required) ? required : [];
+  return {
+    ...rest,
+    [alternativesKey]: alternatives.map((alternative) => {
+      const branch = alternative as JsonSchemaNode;
+      const branchProperties = isJsonSchemaNode(branch.properties) ? branch.properties : {};
+      const branchRequired = Array.isArray(branch.required) ? branch.required : [];
+      return {
+        ...branch,
+        properties: { ...properties, ...branchProperties },
+        required: [...new Set([...sharedRequired, ...branchRequired])],
+      };
+    }),
+  };
 }
 
 function toPascalCaseMethod(method: string) {
@@ -296,13 +377,14 @@ function toPascalCaseMethod(method: string) {
 }
 
 function parseRequestEntries(fileContents: string): ReadonlyArray<MethodEntry> {
-  const entryPattern = /\{\s*"method":\s*"([^"]+)",\s*id:\s*RequestId,\s*params:\s*([^,}]+)/g;
+  // Optional params render as `params?: Foo | undefined`; their JSON schema is `NullableFoo`.
+  const entryPattern = /\{\s*"method":\s*"([^"]+)",\s*id:\s*RequestId,\s*params(\??):\s*([^,}|]+)/g;
   const entries: Array<MethodEntry> = [];
   let match: RegExpExecArray | null;
   while ((match = entryPattern.exec(fileContents)) !== null) {
     entries.push({
       method: match[1]!,
-      paramsType: match[2]!.trim(),
+      paramsType: `${match[2] ? "Nullable" : ""}${match[3]!.trim()}`,
     });
   }
   return entries;
@@ -350,12 +432,18 @@ function resolveResponseTypeName(
   generatedSchemaNames: ReadonlySet<string>,
 ): string {
   const overrides: Record<string, string> = {
+    "account/gatewayOAuth/cancel": "GatewayOAuthCancelResponse",
+    "account/gatewayOAuth/login": "GatewayOAuthLoginResponse",
+    "account/gatewayOAuth/read": "GatewayOAuthReadResponse",
     "account/logout": "LogoutAccountResponse",
     "account/rateLimits/read": "GetAccountRateLimitsResponse",
+    "account/usage/read": "GetAccountTokenUsageResponse",
+    "account/workspaceMessages/read": "GetWorkspaceMessagesResponse",
     "config/batchWrite": "ConfigWriteResponse",
     "config/mcpServer/reload": "McpServerRefreshResponse",
     "config/value/write": "ConfigWriteResponse",
     "configRequirements/read": "ConfigRequirementsReadResponse",
+    "externalAgentConfig/import/readHistories": "ExternalAgentConfigImportHistoriesReadResponse",
   };
 
   const override = overrides[method];
@@ -418,7 +506,7 @@ function renderSchemaMap(
 }
 
 function renderSchemaTypeReference(schemaName: string) {
-  return schemaName === "undefined" ? "undefined" : `typeof CodexSchema.${schemaName}.Type`;
+  return schemaName === "undefined" ? "undefined" : `CodexSchema.${schemaName}`;
 }
 
 function exportNameForPath(filePath: string): string {
@@ -469,11 +557,11 @@ function buildJsonSchemaFiles(
 }
 
 function rewriteExternalRefs(
-  value: typeof Schema.Json.Type,
+  value: Schema.Json,
   localDefinitionNames: ReadonlyMap<string, string>,
   currentNamespace: string | undefined,
   exportNameByQualifiedName: ReadonlyMap<string, string>,
-): typeof Schema.Json.Type {
+): Schema.Json {
   if (Array.isArray(value)) {
     return value.map((entry) =>
       rewriteExternalRefs(entry, localDefinitionNames, currentNamespace, exportNameByQualifiedName),
@@ -489,7 +577,7 @@ function rewriteExternalRefs(
         const definitionName = child.slice("#/definitions/".length);
         const localRewrite = localDefinitionNames.get(definitionName);
         if (localRewrite) {
-          return [key, `#/definitions/${localRewrite}`];
+          return [key, `#/components/schemas/${localRewrite}`];
         }
 
         const candidates = [
@@ -510,7 +598,7 @@ function rewriteExternalRefs(
           throw new Error(`Missing rewritten definition for ref: ${child}`);
         }
 
-        return [key, `#/definitions/${rewritten}`];
+        return [key, `#/components/schemas/${rewritten}`];
       }
 
       return [
@@ -523,7 +611,7 @@ function rewriteExternalRefs(
         ),
       ];
     }),
-  ) as typeof Schema.Json.Type;
+  ) as Schema.Json;
 }
 
 const generateFiles = Effect.fn("generateFiles")(function* () {
@@ -544,13 +632,11 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
   const exportNameByQualifiedName = new Map(
     jsonSchemaFiles.map((file) => [file.qualifiedName, file.exportName]),
   );
-  const aggregateSchemas: Record<string, typeof Schema.Json.Type> = {};
+  const aggregateSchemas: Record<string, Schema.Json> = {};
 
   for (const file of jsonSchemaFiles) {
     const raw = yield* fetchText(file.downloadUrl);
-    const parsed = JSON.parse(raw) as {
-      readonly definitions?: Record<string, typeof Schema.Json.Type>;
-    } & Record<string, typeof Schema.Json.Type>;
+    const parsed = yield* decodeJsonSchemaDocument(raw);
     const localDefinitionNames = new Map(
       Object.keys(parsed.definitions ?? {}).map((definitionName) => [
         definitionName,
@@ -562,7 +648,7 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
       aggregateSchemas[localDefinitionNames.get(definitionName)!] = stripNullDefaults(
         normalizeNullableTypes(
           rewriteExternalRefs(
-            definitionSchema,
+            DefinitionOverrides[definitionName] ?? definitionSchema,
             localDefinitionNames,
             file.namespace,
             exportNameByQualifiedName,
@@ -571,7 +657,7 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
       );
     }
 
-    const topLevelSchema: Record<string, typeof Schema.Json.Type> = {};
+    const topLevelSchema: Record<string, Schema.Json> = {};
     for (const [key, value] of Object.entries(parsed)) {
       if (key !== "definitions") {
         topLevelSchema[key] = value;
@@ -600,7 +686,8 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
   for (const [name, schema] of Object.entries(aggregateSchemas).toSorted(([left], [right]) =>
     left.localeCompare(right),
   )) {
-    generator.addSchema(name, schema as never);
+    aggregateSchemas[name] = adaptSchemaForEffect(schema);
+    generator.addSchema(name, aggregateSchemas[name] as never);
   }
 
   const generatedEntries = new Map<string, string>();
@@ -751,14 +838,16 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
   yield* Effect.log(`Generated Codex App Server schemas from ${UPSTREAM_REF}`);
 
   yield* Effect.service(ChildProcessSpawner.ChildProcessSpawner).pipe(
-    Effect.flatMap((spawner) => spawner.spawn(ChildProcess.make("bun", ["oxfmt", generatedDir]))),
+    Effect.flatMap((spawner) =>
+      spawner.spawn(ChildProcess.make("vp", ["fmt", generatedDir, "--write"])),
+    ),
     Effect.flatMap((child) => child.exitCode),
     Effect.tap((code) =>
       code === 0
         ? Effect.void
         : Effect.fail(
             new GeneratorError({
-              detail: `oxfmt failed with exit code ${code}`,
+              detail: `vp fmt failed with exit code ${code}`,
             }),
           ),
     ),
@@ -767,6 +856,12 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
 
 generateFiles().pipe(
   Effect.scoped,
-  Effect.provide(Layer.mergeAll(Logger.layer([Logger.consolePretty()]), NodeServices.layer)),
+  Effect.provide(
+    Layer.mergeAll(
+      Logger.layer([Logger.consolePretty()]),
+      NodeServices.layer,
+      FetchHttpClient.layer,
+    ),
+  ),
   NodeRuntime.runMain,
 );

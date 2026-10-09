@@ -33,7 +33,8 @@
  *
  * @module providerInstance
  */
-import { Effect, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 const PROVIDER_SLUG_MAX_CHARS = 64;
@@ -129,6 +130,25 @@ export const ProviderInstanceConfig = Schema.Struct({
   config: Schema.optionalKey(Schema.Unknown),
 });
 export type ProviderInstanceConfig = typeof ProviderInstanceConfig.Type;
+
+/** Atomic mutation for one provider-instance map entry. */
+export const ProviderInstanceMutation = Schema.Union([
+  Schema.Struct({
+    operation: Schema.Literal("create"),
+    instanceId: ProviderInstanceId,
+    instance: ProviderInstanceConfig,
+  }),
+  Schema.Struct({
+    operation: Schema.Literal("upsert"),
+    instanceId: ProviderInstanceId,
+    instance: ProviderInstanceConfig,
+  }),
+  Schema.Struct({
+    operation: Schema.Literal("remove"),
+    instanceId: ProviderInstanceId,
+  }),
+]);
+export type ProviderInstanceMutation = typeof ProviderInstanceMutation.Type;
 
 /**
  * Map shape for `ServerSettings.providerInstances`. Keyed by

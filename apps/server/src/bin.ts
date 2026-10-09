@@ -1,17 +1,27 @@
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
-import { Command } from "effect/unstable/cli";
+/**
+ * Thin CLI entry.
+ *
+ * Every ACP agent spawns `t3 acp-mcp-bridge` while opening its session, and
+ * terminal-fallback agents run `t3 acp-mcp-call` per tool call, so their
+ * startup sits on first-message latency. Both dispatch here before the full
+ * CLI module graph (seconds of evaluation) loads; everything else defers to
+ * the real CLI in ./binCli.ts.
+ */
+import { isEntrypoint } from "./entrypoint.ts";
 
-import { NetService } from "@t3tools/shared/Net";
-import { cli } from "./cli.ts";
-import packageJson from "../package.json" with { type: "json" };
-
-const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
-
-Command.run(cli, { version: packageJson.version }).pipe(
-  Effect.scoped,
-  Effect.provide(CliRuntimeLayer),
-  NodeRuntime.runMain,
-);
+if (
+  isEntrypoint({
+    moduleUrl: import.meta.url,
+    entryPath: process.argv[1],
+    runtimeMain: import.meta.main,
+  })
+) {
+  const command = process.argv[2];
+  if (command === "acp-mcp-bridge" || command === "acp-mcp-call") {
+    const { runAcpMcpCliFastPath } = await import("./mcp/AcpMcpStdioBridge.ts");
+    await runAcpMcpCliFastPath(command, process.argv.slice(3));
+  } else {
+    const { runCli } = await import("./binCli.ts");
+    runCli();
+  }
+}
