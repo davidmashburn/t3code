@@ -2,6 +2,7 @@ import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
+import { reconcileForkRelayMigration } from "./reconcileForkRelayMigration.ts";
 
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
 import Migration0002 from "./Migrations/002_OrchestrationCommandReceipts.ts";
@@ -153,6 +154,7 @@ const FIRST_V2_MIGRATION_ID = 55;
  */
 const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function* (
   throughId?: number,
+  repairedV2MigrationIds: ReadonlyArray<number> = [],
 ) {
   const sql = yield* SqlClient.SqlClient;
   const tables = yield* sql`
@@ -167,6 +169,7 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
   const recordedNames = new Map(recorded.map((row) => [row.migration_id, row.name]));
   const skipped = migrationEntries.flatMap(([id, name]) => {
     if (
+      repairedV2MigrationIds.includes(id) ||
       id < FIRST_V2_MIGRATION_ID ||
       id > latestRecordedId ||
       (throughId !== undefined && id > throughId)
@@ -192,11 +195,12 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  const repairedV2MigrationIds = yield* reconcileForkRelayMigration(toMigrationInclusive);
   const includesV2 =
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
   const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
   if (includesV2) {
-    yield* assertV2MigrationsCanRun(toMigrationInclusive);
+    yield* assertV2MigrationsCanRun(toMigrationInclusive, repairedV2MigrationIds);
   }
   const executedMigrations = [
     ...previewMigrations,
@@ -207,6 +211,10 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     ? Effect.logDebug("Database schema is current")
     : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
 
+  // The migrator keys on migration_id: a database that recorded a different
+  // migration under a shared id (local or fork builds) keeps that id and
+  // silently skips this build's migration at it. Known fork schema collisions
+  // are repaired above; preserve and surface the original ledger for diagnosis.
   const sql = yield* SqlClient.SqlClient;
   const recorded = yield* sql<{
     readonly migration_id: number;
@@ -224,7 +232,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
   });
   if (divergent.length > 0) {
     yield* Effect.logWarning(
-      "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
+      "Database migration history differs from this build; recorded ids are preserved and known fork schema collisions are reconciled separately.",
     ).pipe(Effect.annotateLogs({ divergent }));
   }
   return executedMigrations;
