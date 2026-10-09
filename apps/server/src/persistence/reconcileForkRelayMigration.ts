@@ -67,6 +67,17 @@ export const reconcileForkRelayMigration = Effect.fn("reconcileForkRelayMigratio
         ...(collided(55, "RepairAuthSessionClientConnection") ? [55] : []),
         ...(collided(56, "RepairForkRelaySchema") ? [56] : []),
       ];
-    }),
+    }).pipe(
+      Effect.catchTags({
+        SchemaError: (cause) =>
+          Effect.fail(
+            new Migrator.MigrationError({
+              kind: "Failed",
+              message: "Cannot decode legacy data while reconciling fork migrations.",
+              cause,
+            }),
+          ),
+      }),
+    ),
   );
 });
