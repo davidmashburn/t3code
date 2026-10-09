@@ -1411,7 +1411,9 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
       ) : props.reserveContextWindowMeter ? (
         <ContextWindowMeterPlaceholder />
       ) : null}
-      {props.providerUsageDriver && props.providerUsageLimits && props.providerUsageLimits.windows.length > 0 ? (
+      {props.providerUsageDriver &&
+      props.providerUsageLimits &&
+      props.providerUsageLimits.windows.length > 0 ? (
         <ProviderUsageMeter
           driver={props.providerUsageDriver}
           limits={props.providerUsageLimits}
