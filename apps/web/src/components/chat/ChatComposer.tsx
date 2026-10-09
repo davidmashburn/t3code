@@ -1361,7 +1361,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   activeContextWindow: ContextWindowSnapshot | null;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
-  providerUsage: ServerProvider["usage"] | null;
+  providerUsageLimits: ServerProvider["usageLimits"] | null;
+  providerUsageDriver: ServerProvider["driver"] | null;
   providerUsageDisplayName: string | null;
   isPreparingWorktree: boolean;
   pendingAction: {
@@ -1410,9 +1411,10 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
       ) : props.reserveContextWindowMeter ? (
         <ContextWindowMeterPlaceholder />
       ) : null}
-      {props.providerUsage && props.providerUsage.windows.length > 0 ? (
+      {props.providerUsageDriver && props.providerUsageLimits && props.providerUsageLimits.windows.length > 0 ? (
         <ProviderUsageMeter
-          usage={props.providerUsage}
+          driver={props.providerUsageDriver}
+          limits={props.providerUsageLimits}
           providerDisplayName={props.providerUsageDisplayName}
         />
       ) : null}
@@ -7638,7 +7640,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
-                    providerUsage={selectedProviderStatus?.usage ?? null}
+                    providerUsageLimits={selectedProviderStatus?.usageLimits ?? null}
+                    providerUsageDriver={selectedProviderStatus?.driver ?? null}
                     providerUsageDisplayName={selectedProviderStatus?.displayName ?? null}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}
