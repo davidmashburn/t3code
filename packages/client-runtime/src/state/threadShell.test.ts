@@ -48,6 +48,33 @@ function makeHarness(environmentIds: ReadonlyArray<EnvironmentId> = [environment
 }
 
 describe("v2 thread shell lists", () => {
+  it("preserves external ownership through shell updates for composer guards", () => {
+    const { registry, threads, snapshotAtom } = makeHarness();
+    const externalSession = {
+      sessionId: "external",
+      controlMode: "mirrored" as const,
+      running: true,
+    };
+    const snapshot = { ...v2ShellSnapshot, threads: [{ ...v2ThreadShell, externalSession }] };
+    registry.set(snapshotAtom(environmentId), snapshot);
+    const dispose = registry.mount(threads.threadShellsAtom);
+    expect(registry.get(threads.threadShellsAtom)[0]?.externalSession).toEqual(externalSession);
+    registry.set(
+      snapshotAtom(environmentId),
+      applyShellStreamEvent(snapshot, {
+        kind: "thread.updated",
+        location: "active",
+        sequence: 1,
+        thread: {
+          ...snapshot.threads[0]!,
+          externalSession: { ...externalSession, controlMode: "owned", running: false },
+        },
+      }),
+    );
+    expect(registry.get(threads.threadShellsAtom)[0]?.externalSession?.controlMode).toBe("owned");
+    dispose();
+    registry.dispose();
+  });
   it("preserves ordered reference arrays when a middle thread changes", () => {
     const { registry, threads, snapshotAtom } = makeHarness();
     const snapshot = {

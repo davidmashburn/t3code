@@ -426,6 +426,8 @@ const threadPullRequestLinksEqual = Schema.toEquivalence(Schema.NullOr(ThreadLin
 
 function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
   switch (command.type) {
+    case "thread.external.observe":
+    case "thread.external.control":
     case "thread.create":
     case "thread.archive":
     case "thread.unarchive":
@@ -2194,6 +2196,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
     const thread: OrchestrationV2AppThread = {
+      ...(command.externalSession === undefined
+        ? {}
+        : { externalSession: command.externalSession }),
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,
@@ -10114,6 +10119,152 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
   });
 
+  const dispatchExternalObserve = Effect.fn("orchestrationV2.dispatch.externalObserve")(function* (
+    command: Extract<OrchestrationV2InternalCommand, { type: "thread.external.observe" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    // Snapshot reconciliation needs assistant/tool items too, including the legacy
+    // importer IDs; ordinary command reads intentionally filter that history out.
+    const projection = yield* projectionStore
+      .getThreadProjection(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    const thread = projection.thread;
+    // A scan may have started before takeover. Check ownership under the command lock.
+    if (thread.externalSession?.controlMode !== "mirrored" || thread.deletedAt !== null) return;
+    const now = yield* DateTime.now;
+    const emitEvent = emit(events, command);
+    yield* emitEvent({
+      type: "thread.metadata-updated",
+      threadId: thread.id,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: now,
+      payload: {
+        ...thread,
+        externalSession: { ...thread.externalSession, ...command.externalSession },
+        updatedAt: now,
+        activeProviderThreadId: command.providerThread.id,
+        ...(command.title ? { title: command.title } : {}),
+      },
+    });
+    yield* emitEvent({
+      type: "provider-thread.updated",
+      threadId: thread.id,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: now,
+      payload: {
+        ...command.providerThread,
+        ...projection.providerThreads.find(
+          (candidate) => candidate.id === command.providerThread.id,
+        ),
+        nativeConversationHeadRef: command.providerThread.nativeConversationHeadRef,
+        status: "not_loaded",
+        providerSessionId: null,
+        updatedAt: now,
+      },
+    });
+    // T3-owned turns are already in the projection under native provider IDs. A full
+    // JSONL rescan after release must not import a second copy of those turns.
+    const ownedThrough = Math.max(
+      thread.externalSession.ownedThrough ? Date.parse(thread.externalSession.ownedThrough) : 0,
+      ...projection.runs.map((run) =>
+        run.completedAt === null ? 0 : DateTime.toEpochMillis(run.completedAt),
+      ),
+    );
+    for (const message of command.messages) {
+      const previous = projection.messages.find((item) => item.id === message.id);
+      if (!previous && DateTime.toEpochMillis(message.createdAt) <= ownedThrough) continue;
+      if (previous?.text === message.text && previous.streaming === message.streaming) continue;
+      yield* emitEvent({
+        type: "message.updated",
+        threadId: thread.id,
+        occurredAt: message.updatedAt,
+        payload: message,
+      });
+    }
+    let ordinal = Math.max(0, ...projection.turnItems.map((item) => item.ordinal));
+    for (const item of command.turnItems) {
+      const previous = projection.turnItems.find(
+        (entry) =>
+          entry.id === item.id ||
+          ("messageId" in entry && "messageId" in item && entry.messageId === item.messageId),
+      );
+      if (
+        !previous &&
+        item.startedAt !== null &&
+        DateTime.toEpochMillis(item.startedAt) <= ownedThrough
+      )
+        continue;
+      yield* emitEvent({
+        type: "turn-item.updated",
+        threadId: thread.id,
+        occurredAt: item.updatedAt,
+        payload: { ...item, id: previous?.id ?? item.id, ordinal: previous?.ordinal ?? ++ordinal },
+      });
+    }
+  });
+
+  const dispatchExternalControl = Effect.fn("orchestrationV2.dispatch.externalControl")(function* (
+    command: Extract<OrchestrationV2Command, { type: "thread.external.control" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+  ) {
+    const projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+    const external = projection.thread.externalSession;
+    if (!external || external.controlMode === command.controlMode) return;
+    if (
+      external.running ||
+      projection.runs.some((run) =>
+        ["queued", "preparing", "starting", "running", "waiting"].includes(run.status),
+      )
+    ) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause:
+          "Wait for the current turn and queued work to finish before changing session ownership.",
+      });
+    }
+    const now = yield* DateTime.now;
+    if (command.controlMode === "mirrored") {
+      for (const session of projection.providerSessions) {
+        if (session.status === "stopped") continue;
+        yield* dispatchProviderSessionDetach(
+          {
+            type: "provider-session.detach",
+            commandId: command.commandId,
+            threadId: command.threadId,
+            providerSessionId: session.id,
+            reason: "Released external Claude session.",
+          },
+          events,
+          effects,
+        );
+      }
+    }
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: command.threadId,
+      providerInstanceId: projection.thread.providerInstanceId,
+      occurredAt: now,
+      payload: {
+        ...projection.thread,
+        externalSession: {
+          ...external,
+          controlMode: command.controlMode,
+          ...(command.controlMode === "mirrored" ? { ownedThrough: DateTime.formatIso(now) } : {}),
+        },
+        updatedAt: now,
+      },
+    });
+  });
+
   const dispatchUnsupported = (command: OrchestrationV2ServerCommand) =>
     Effect.fail(
       new OrchestratorDispatchError({
@@ -10149,7 +10300,44 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           readonly reason: string;
         }
       | undefined;
+    const ownershipGuardThreadIds = (() => {
+      switch (command.type) {
+        case "message.dispatch":
+        case "queue.resume":
+        case "provider.switch":
+        case "thread.model-selection.set":
+        case "prepared-run.release":
+        case "prepared-run.retry":
+        case "checkpoint.rollback":
+          return [command.threadId];
+        case "thread.fork":
+          return [command.sourceThreadId];
+        case "thread.merge_back":
+          return [command.sourceThreadId, command.targetThreadId];
+        default:
+          return [];
+      }
+    })();
+    for (const threadId of ownershipGuardThreadIds) {
+      const thread = yield* projectionStore
+        .getThread(threadId)
+        .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
+      if (thread.externalSession?.controlMode === "mirrored") {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause:
+            "This external Claude session is read-only. Take over the session before sending work.",
+        });
+      }
+    }
     switch (command.type) {
+      case "thread.external.observe":
+        yield* dispatchExternalObserve(command, events);
+        break;
+      case "thread.external.control":
+        yield* dispatchExternalControl(command, events, effects);
+        break;
       case "thread.create":
         yield* dispatchThreadCreate(command, events);
         break;
@@ -10502,6 +10690,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         // its expected outcome, not a failure.
         planned.events.length > 0 ||
         command.type === "thread.background-work.settle" ||
+        command.type === "thread.external.observe" ||
+        command.type === "thread.external.control" ||
         command.type === "thread.stop"
           ? Effect.succeed(planned)
           : Effect.fail(

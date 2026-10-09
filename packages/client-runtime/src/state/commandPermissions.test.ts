@@ -13,6 +13,7 @@ import {
   EnvironmentId,
   ScheduledTaskId,
   WS_METHODS,
+  ORCHESTRATION_V2_WS_METHODS,
   type AuthSessionState,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -58,6 +59,26 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
+  it.effect("requires thread-operation permission for external session ownership changes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const control = createCommandPermissions(
+          runtime,
+          ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+        );
+        registry.set(sessions(env), AsyncResult.success(grant(false)));
+        expect(registry.get(control.permissionAtom(env))).toBe(false);
+        expect((yield* control.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+          "EnvironmentAuthorizationError",
+        );
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(control.permissionAtom(env))).toBe(true);
+        yield* control.authorize(registry, env);
+      }),
+    ),
+  );
+
   it.effect("uses the target grant for both availability and execution", () =>
     Effect.scoped(
       Effect.gen(function* () {

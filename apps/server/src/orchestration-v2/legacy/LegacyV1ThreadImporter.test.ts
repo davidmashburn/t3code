@@ -533,4 +533,74 @@ it.layer(layerTest)("LegacyV1ThreadImporter", (it) => {
       assert.deepStrictEqual(eventsAfterRestart, eventsBeforeRetry);
     }),
   );
+  it.effect("preserves external Claude ownership and native resume cursors through cutover", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const importer = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const now = DateTime.makeUnsafe("2026-10-01T00:00:00.000Z");
+      const seed = (id: string) => sql`
+        INSERT INTO projection_threads (thread_id, project_id, title, model_selection_json, created_at, updated_at)
+        VALUES (${id}, 'mirror-project', 'External Claude', '{"instanceId":"claudeAgent","model":"claude-sonnet-5"}',
+          '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z')`;
+      // Also repair a shell that an earlier upstream boot imported without the fork metadata.
+      yield* seed("mirror-already-imported");
+      yield* importer.reconcileShells;
+      yield* sql`ALTER TABLE projection_thread_sessions ADD COLUMN origin TEXT NOT NULL DEFAULT 't3'`;
+      yield* sql`ALTER TABLE projection_thread_sessions ADD COLUMN control_mode TEXT NOT NULL DEFAULT 'owned'`;
+      for (const [id, mode] of [
+        ["mirror-already-imported", "mirrored"],
+        ["mirror-owned", "owned"],
+        ["mirror-readonly", "mirrored"],
+      ] as const) {
+        if (id !== "mirror-already-imported") yield* seed(id);
+        yield* sql`INSERT INTO projection_thread_sessions (thread_id, status, provider_name, provider_instance_id, origin, control_mode, updated_at)
+          VALUES (${id}, 'running', 'claudeAgent', 'claudeAgent', 'external', ${mode}, '2026-10-01T00:00:00.000Z')`;
+        yield* sql`INSERT INTO provider_session_runtime (thread_id, provider_name, adapter_key, status, last_seen_at, resume_cursor_json, runtime_payload_json)
+          VALUES (${id}, 'claudeAgent', 'claudeAgent', 'stopped', '2026-10-01T00:00:00.000Z',
+            json_object('resume', ${id}, 'resumeSessionAt', 'last-assistant'), '{"claudeTranscriptMirror":true}')`;
+      }
+      yield* importer.reconcileShells;
+      for (const [id, mode] of [
+        ["mirror-already-imported", "mirrored"],
+        ["mirror-owned", "owned"],
+        ["mirror-readonly", "mirrored"],
+      ] as const) {
+        const projection = yield* projections.getThreadProjection(ThreadId.make(id));
+        assert.deepStrictEqual(projection.thread.externalSession, {
+          sessionId: id,
+          controlMode: mode,
+          running: mode === "mirrored",
+          ...(mode === "owned" ? { ownedThrough: "2026-10-01T00:00:00.000Z" } : {}),
+        });
+        assert.equal(projection.providerThreads[0]?.nativeThreadRef?.nativeId, id);
+        assert.equal(
+          projection.providerThreads[0]?.nativeConversationHeadRef?.nativeId,
+          "last-assistant",
+        );
+        assert.equal(projection.thread.activeProviderThreadId, projection.providerThreads[0]?.id);
+      }
+      const owned = yield* projections.getThread(ThreadId.make("mirror-owned"));
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make("release-after-cutover"),
+            type: "thread.metadata-updated",
+            threadId: owned.id,
+            occurredAt: now,
+            payload: {
+              ...owned,
+              externalSession: { sessionId: owned.id, controlMode: "mirrored", running: false },
+            },
+          },
+        ],
+      });
+      yield* importer.reconcileShells;
+      assert.equal(
+        (yield* projections.getThread(owned.id)).externalSession?.controlMode,
+        "mirrored",
+      );
+    }),
+  );
 });

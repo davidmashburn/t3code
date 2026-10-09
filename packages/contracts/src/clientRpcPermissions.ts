@@ -5,6 +5,7 @@ import {
   AuthSourceControlWriteScope,
   type AuthEnvironmentScope,
 } from "./auth.ts";
+import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
 import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
@@ -48,6 +49,18 @@ export function clientRpcRequiredScopes(
   method: string,
   input: unknown,
 ): readonly AuthEnvironmentScope[] {
+  // Ownership uses the guarded command boundary; older orchestration commands
+  // still use their existing permission checks. Missing input is the UI availability probe.
+  if (
+    method === ORCHESTRATION_V2_WS_METHODS.dispatchCommand &&
+    (input === undefined ||
+      (typeof input === "object" &&
+        input !== null &&
+        "type" in input &&
+        input.type === "thread.external.control"))
+  ) {
+    return [AuthOrchestrationOperateScope];
+  }
   if (method === WS_METHODS.gitPreparePullRequestThread && input !== undefined) {
     const payload = decodePrepareThread(input);
     if (payload.mode === "worktree" && payload.threadId !== undefined)
