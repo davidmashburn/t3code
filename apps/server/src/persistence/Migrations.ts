@@ -12,6 +12,7 @@ import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
+import { reconcileForkRelayMigration } from "./reconcileForkRelayMigration.ts";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -184,6 +185,7 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  yield* reconcileForkRelayMigration(toMigrationInclusive);
   const previewMigrations =
     toMigrationInclusive === undefined || toMigrationInclusive >= 55
       ? yield* reconcileV2PreviewMigration()
@@ -199,8 +201,8 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
 
   // The migrator keys on migration_id: a database that recorded a different
   // migration under a shared id (local or fork builds) keeps that id and
-  // silently skips this build's migration at it. Surface the divergence so the
-  // skipped schema change is diagnosable.
+  // silently skips this build's migration at it. Known fork schema collisions
+  // are repaired above; preserve and surface the original ledger for diagnosis.
   const sql = yield* SqlClient.SqlClient;
   const recorded = yield* sql<{
     readonly migration_id: number;
@@ -218,7 +220,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
   });
   if (divergent.length > 0) {
     yield* Effect.logWarning(
-      "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
+      "Database migration history differs from this build; recorded ids are preserved and known fork schema collisions are reconciled separately.",
     ).pipe(Effect.annotateLogs({ divergent }));
   }
   return executedMigrations;
