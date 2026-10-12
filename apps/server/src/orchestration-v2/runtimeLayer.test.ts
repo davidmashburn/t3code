@@ -2944,6 +2944,8 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
 
   it.effect.each([
     "single page",
+    "issue comment",
+    "bodyless approval",
     "paginated",
     "page failure",
     "repeated cursor",
@@ -2994,18 +2996,28 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       });
 
       const at = "2026-10-02T12:00:00.000Z";
-      const detail = watchedPullRequestDetail({ projectId, number: key.number, at });
+      const singlePage = ["single page", "issue comment", "bodyless approval"].includes(mode);
+      const detail = {
+        ...watchedPullRequestDetail({ projectId, number: key.number, at }),
+        // Isolate remarks from check failures so a check wake cannot mask a dropped approval.
+        ...(singlePage ? { checks: [] } : {}),
+      };
       const initialWatch = (yield* orchestrator.getThreadShell(threadId))?.pullRequests?.[0]?.watch;
       assert.isDefined(initialWatch);
       const remark: PullRequestComment = {
         id: "review-1",
-        kind: "review-comment",
+        kind:
+          mode === "bodyless approval"
+            ? "review"
+            : mode === "issue comment"
+              ? "issue-comment"
+              : "review-comment",
         author: { login: "reviewer", name: null, avatarUrl: null },
-        body: "One more thing.",
+        body: mode === "bodyless approval" ? "" : "One more thing.",
         createdAt: "2999-01-01T00:00:03.000Z",
         url: null,
-        path: "src/index.ts",
-        reviewState: null,
+        path: mode === "bodyless approval" ? null : "src/index.ts",
+        reviewState: mode === "bodyless approval" ? "APPROVED" : null,
       };
       const firstTen = Array.from({ length: 10 }, (_, index) => ({
         ...remark,
@@ -3024,42 +3036,43 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         body: "Twelfth reply.",
         createdAt: "2999-01-01T00:00:02.000Z",
       };
-      const incomplete = mode !== "single page" && mode !== "paginated";
+      const incomplete = !singlePage && mode !== "paginated";
       let recovering = false;
       let pagesRead = 0;
-      const reactor = yield* PullRequestWatchReactor.make.pipe(
+      let activityReads = 0;
+      const makeReactor = PullRequestWatchReactor.make.pipe(
         Effect.provide(
           Layer.mergeAll(
             NodeServices.layer,
             Layer.mock(PullRequestService.PullRequestService)({
               detail: () => Effect.succeed(detail),
-              activity: () =>
-                Effect.succeed({
-                  comments:
-                    mode === "single page"
-                      ? [remark]
-                      : [...firstTen, { ...remark, kind: "issue-comment" }],
-                  commentCount: mode === "single page" ? 1 : 13,
-                  commentsTruncated: mode !== "single page",
+              activity: (input) => {
+                if (input.projectId === projectId) activityReads += 1;
+                return Effect.succeed({
+                  comments: singlePage
+                    ? [remark]
+                    : [...firstTen, { ...remark, kind: "issue-comment" }],
+                  commentCount: singlePage ? 1 : 13,
+                  commentsTruncated: !singlePage,
                   reviewThreadsTruncated: mode === "thread list truncated" && !recovering,
-                  reviewThreads:
-                    mode === "single page"
-                      ? []
-                      : [
-                          {
-                            id: "review-thread",
-                            path: "src/index.ts",
-                            line: 1,
-                            side: "right",
-                            isResolved: false,
-                            isOutdated: false,
-                            comments: firstTen,
-                            commentCount: 12,
-                            nextCommentsCursor: "after-10",
-                          },
-                        ],
+                  reviewThreads: singlePage
+                    ? []
+                    : [
+                        {
+                          id: "review-thread",
+                          path: "src/index.ts",
+                          line: 1,
+                          side: "right",
+                          isResolved: false,
+                          isOutdated: false,
+                          comments: firstTen,
+                          commentCount: 12,
+                          nextCommentsCursor: "after-10",
+                        },
+                      ],
                   commits: [],
-                }),
+                });
+              },
               threadComments: (input) => {
                 pagesRead += 1;
                 assert.equal(input.threadId, "review-thread");
@@ -3088,6 +3101,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
           ),
         ),
       );
+      const reactor = yield* makeReactor;
       if (incomplete) {
         yield* reactor.sweep;
         const held = (yield* orchestrator.getThreadShell(threadId))?.pullRequests?.[0]?.watch;
@@ -3108,6 +3122,13 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       const pagesBefore = pagesRead;
       yield* reactor.sweep;
       assert.equal(pagesRead, pagesBefore);
+      if (singlePage) {
+        // A fresh reactor has no read cache; the persisted watermark must prevent redelivery.
+        const readsBeforeRestart = activityReads;
+        const restarted = yield* makeReactor;
+        yield* restarted.sweep;
+        assert.equal(activityReads, readsBeforeRestart + 1);
+      }
 
       const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"]);
       assert.deepEqual(
@@ -3116,9 +3137,14 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         ),
         incomplete
           ? ["#7: checks failed", "#7: new comments"]
-          : ["#7: checks failed, new comments"],
+          : singlePage
+            ? ["#7: new comments"]
+            : ["#7: checks failed, new comments"],
       );
-      if (mode !== "single page") {
+      if (mode === "bodyless approval") {
+        assert.include(messages.at(-1)?.text ?? "", "reviewer: APPROVED");
+      }
+      if (!singlePage) {
         const wake = messages.at(-1);
         assert.include(wake?.text ?? "", "3 new comments");
         assert.include(wake?.text ?? "", "Eleventh reply.");
@@ -3129,7 +3155,11 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       assert.deepEqual(watch?.remarkIds, [remark.id]);
       assert.deepEqual(
         { headSha: watch?.headSha, failedChecks: watch?.failedChecks, wakes: watch?.wakes },
-        { headSha: "abc1234def", failedChecks: ["lint"], wakes: incomplete ? 1 : 0 },
+        {
+          headSha: "abc1234def",
+          failedChecks: singlePage ? [] : ["lint"],
+          wakes: incomplete || singlePage ? 1 : 0,
+        },
       );
     }),
   );
