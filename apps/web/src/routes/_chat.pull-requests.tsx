@@ -175,6 +175,7 @@ import { Separator } from "~/components/ui/separator";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
+import { PullRequestWatches } from "~/components/pullRequest/PullRequestWatches";
 
 function getShortcutContext() {
   return {
@@ -2430,6 +2431,9 @@ function PullRequestsColumn({
           </WorkspaceBreadcrumb>
         )}
         <div className="min-w-0 flex-1" />
+        <div className="shrink-0 [-webkit-app-region:no-drag]">
+          <PullRequestWatches />
+        </div>
         {condensed ? (
           <div className="flex shrink items-center gap-1.5">
             <ExpandableSearch
