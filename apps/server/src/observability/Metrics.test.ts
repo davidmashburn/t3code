@@ -1,6 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
 import { ProviderDriverKind } from "@t3tools/contracts";
-import { Effect, Metric } from "effect";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Metric from "effect/Metric";
+import * as TestClock from "effect/testing/TestClock";
 
 import { withMetrics } from "./Metrics.ts";
 
@@ -11,6 +16,18 @@ const hasMetricSnapshot = (
 ) =>
   snapshots.some(
     (snapshot) =>
+      snapshot.id === id &&
+      Object.entries(attributes).every(([key, value]) => snapshot.attributes?.[key] === value),
+  );
+
+const findHistogramSnapshot = (
+  snapshots: ReadonlyArray<Metric.Metric.Snapshot>,
+  id: string,
+  attributes: Readonly<Record<string, string>>,
+) =>
+  snapshots.find(
+    (snapshot): snapshot is Extract<Metric.Metric.Snapshot, { readonly type: "Histogram" }> =>
+      snapshot.type === "Histogram" &&
       snapshot.id === id &&
       Object.entries(attributes).every(([key, value]) => snapshot.attributes?.[key] === value),
   );
@@ -108,6 +125,95 @@ describe("withMetrics", () => {
         }),
         true,
       );
+    }),
+  );
+
+  it.effect("counts interrupted work with an interrupt outcome and its duration", () =>
+    Effect.gen(function* () {
+      const counter = Metric.counter("with_metrics_interrupt_total");
+      const timer = Metric.timer("with_metrics_interrupt_duration");
+      const started = yield* Deferred.make<void>();
+
+      const fiber = yield* Deferred.succeed(started, undefined).pipe(
+        Effect.andThen(Effect.never),
+        withMetrics({ counter, timer, attributes: { operation: "interrupt" } }),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(started);
+      yield* TestClock.adjust(Duration.millis(5));
+      yield* Fiber.interrupt(fiber);
+
+      const snapshots = yield* Metric.snapshot;
+      assert.equal(
+        hasMetricSnapshot(snapshots, "with_metrics_interrupt_total", {
+          operation: "interrupt",
+          outcome: "interrupt",
+        }),
+        true,
+      );
+      const duration = findHistogramSnapshot(snapshots, "with_metrics_interrupt_duration", {
+        operation: "interrupt",
+      });
+      assert.equal(duration?.state.count, 1);
+      assert.equal(duration?.state.sum, 5);
+    }),
+  );
+
+  it.effect("measures durations on the monotonic clock, not the wall clock", () =>
+    Effect.gen(function* () {
+      const timer = Metric.timer("with_metrics_monotonic_duration");
+      const started = yield* Deferred.make<void>();
+      const finish = yield* Deferred.make<void>();
+
+      const fiber = yield* Deferred.succeed(started, undefined).pipe(
+        Effect.andThen(Deferred.await(finish)),
+        withMetrics({ timer, attributes: { operation: "monotonic" } }),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(started);
+      yield* TestClock.adjust(Duration.millis(10));
+      // A backward wall-clock correction must not shorten the measured duration.
+      yield* TestClock.setTime(0);
+      yield* Deferred.succeed(finish, undefined);
+      yield* Fiber.join(fiber);
+
+      const snapshots = yield* Metric.snapshot;
+      const duration = findHistogramSnapshot(snapshots, "with_metrics_monotonic_duration", {
+        operation: "monotonic",
+      });
+      assert.equal(duration?.state.count, 1);
+      assert.equal(duration?.state.sum, 10);
+    }),
+  );
+
+  it.effect("records timer durations from nanosecond clock readings", () =>
+    Effect.gen(function* () {
+      const duration = Duration.nanos(1_500_000n);
+      const timer = Metric.timer("with_metrics_nanos_duration");
+
+      yield* Effect.gen(function* () {
+        const fiber = yield* Effect.sleep(duration).pipe(
+          withMetrics({
+            timer,
+            attributes: {
+              operation: "nanos",
+            },
+          }),
+          Effect.forkChild,
+        );
+
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust(duration);
+        yield* Fiber.join(fiber);
+      }).pipe(Effect.provide(TestClock.layer()));
+
+      const snapshots = yield* Metric.snapshot;
+      const snapshot = findHistogramSnapshot(snapshots, "with_metrics_nanos_duration", {
+        operation: "nanos",
+      });
+
+      assert.equal(snapshot?.state.count, 1);
+      assert.equal(snapshot?.state.sum, 1.5);
     }),
   );
 });

@@ -1,16 +1,19 @@
 import { type ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
 import { memo } from "react";
-import { StarIcon } from "lucide-react";
+import { CheckIcon, StarIcon } from "lucide-react";
 import {
   getDisplayModelName,
   getTriggerDisplayModelLabel,
   type ModelEsque,
-  PROVIDER_ICON_BY_PROVIDER,
 } from "./providerIconUtils";
 import { ComboboxItem } from "../ui/combobox";
+import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 import { Kbd } from "../ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
+import { modelPickerModelKey } from "./modelPickerKeys";
+import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 
 export const ModelListRow = memo(function ModelListRow(props: {
   index: number;
@@ -26,98 +29,126 @@ export const ModelListRow = memo(function ModelListRow(props: {
    */
   providerDisplayName: string;
   providerAccentColor?: string | undefined;
+  acpRegistryAgentId?: string | undefined;
+  acpRegistryIconUrl?: string | undefined;
   isFavorite: boolean;
+  isSelected: boolean;
+  showSelection?: boolean;
   showProvider: boolean;
   preferShortName?: boolean;
   useTriggerLabel?: boolean;
   showNewBadge?: boolean;
+  unavailable?: boolean;
   jumpLabel?: string | null;
+  disabledReason?: string | null;
   onToggleFavorite: () => void;
 }) {
-  const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.driverKind] ?? null;
   const providerLabel = props.model.subProvider
     ? `${props.providerDisplayName} · ${props.model.subProvider}`
     : props.providerDisplayName;
 
-  return (
+  const row = (
     <ComboboxItem
       hideIndicator
       index={props.index}
-      value={`${props.instanceId}:${props.model.slug}`}
-      contentClassName="flex w-full items-start gap-2"
+      value={modelPickerModelKey(props.instanceId, props.model.slug)}
+      disabled={Boolean(props.disabledReason)}
       className={cn(
-        "w-full cursor-pointer rounded px-3 py-2 transition-colors group",
-        "data-highlighted:bg-muted data-selected:bg-accent data-selected:text-foreground",
+        "group relative w-full !min-w-0 max-w-full cursor-pointer",
+        props.disabledReason &&
+          "data-disabled:pointer-events-auto data-disabled:cursor-not-allowed",
       )}
     >
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              className="mt-0.5 shrink-0 cursor-pointer opacity-40 transition-opacity group-hover:opacity-100"
-              onClick={(event) => {
-                event.stopPropagation();
-                props.onToggleFavorite();
-              }}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-              }}
-              type="button"
-              aria-label={props.isFavorite ? "Remove from favorites" : "Add to favorites"}
-            >
-              <StarIcon
-                className={cn("size-4", props.isFavorite && "fill-current text-yellow-500")}
-              />
-            </button>
-          }
-        />
-        <TooltipPopup side="top" align="center">
-          {props.isFavorite ? "Remove from favorites" : "Add to favorites"}
-        </TooltipPopup>
-      </Tooltip>
-
       <div className="min-w-0 flex-1 text-left">
-        <div className="flex items-center justify-between gap-2 min-w-0">
-          <div className="text-xs font-medium leading-snug flex items-center gap-2 min-w-0">
-            <span className="truncate">
-              {props.useTriggerLabel
-                ? getTriggerDisplayModelLabel(props.model)
-                : getDisplayModelName(
-                    props.model,
-                    props.preferShortName ? { preferShortName: true } : undefined,
-                  )}
-            </span>
-            {props.showNewBadge ? (
-              <span
-                className="shrink-0 rounded border border-amber-500/35 bg-amber-500/15 px-0.5 py-px text-[10px] font-bold uppercase leading-none tracking-wide text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/12 dark:text-amber-200"
-                aria-label="New model"
-              >
-                New
-              </span>
-            ) : null}
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="min-w-0 truncate text-xs font-medium leading-snug">
+            {props.useTriggerLabel
+              ? getTriggerDisplayModelLabel(props.model)
+              : getDisplayModelName(
+                  props.model,
+                  props.preferShortName ? { preferShortName: true } : undefined,
+                )}
           </div>
-          {props.jumpLabel ? (
-            <Kbd className="h-4 min-w-0 shrink-0 rounded-sm px-1.5 text-[10px]">
-              {props.jumpLabel}
-            </Kbd>
+          {props.showNewBadge ? (
+            <span
+              className="shrink-0 rounded border border-update/35 bg-update/15 px-0.5 py-px text-3xs font-bold uppercase leading-none tracking-wide text-update-foreground"
+              aria-label="New model"
+            >
+              New
+            </span>
+          ) : null}
+          {props.unavailable ? (
+            <Badge variant="outline" size="sm">
+              Unavailable
+            </Badge>
           ) : null}
         </div>
         {props.showProvider && (
-          <div className="flex items-center gap-1 mt-0.5">
-            {ProviderIcon ? <ProviderIcon className="size-3 shrink-0" /> : null}
-            {props.providerAccentColor ? (
-              <span
-                className="size-1.5 shrink-0 rounded-full"
-                style={{ backgroundColor: props.providerAccentColor }}
-                aria-hidden
-              />
-            ) : null}
-            <span className="text-xs font-normal leading-snug text-muted-foreground/70 truncate">
+          <div className="mt-1 flex items-center gap-1.5">
+            <ProviderInstanceIcon
+              driverKind={props.driverKind}
+              displayName={props.providerDisplayName}
+              acpRegistryAgentId={props.acpRegistryAgentId}
+              acpRegistryIconUrl={props.acpRegistryIconUrl}
+              className="size-3"
+              iconClassName="size-3"
+            />
+            <span className="truncate text-xs font-normal leading-snug text-muted-foreground/70">
               {providerLabel}
             </span>
           </div>
         )}
       </div>
+
+      <div className="flex shrink-0 items-center gap-1.5">
+        {props.showSelection && props.isSelected ? (
+          <CheckIcon className="size-3.5" aria-hidden="true" />
+        ) : null}
+        {props.jumpLabel ? <Kbd>{props.jumpLabel}</Kbd> : null}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon-xs"
+                variant="ghost-muted"
+                className="-mr-1 shrink-0"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onToggleFavorite();
+                }}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                }}
+                disabled={Boolean(props.disabledReason)}
+                aria-label={props.isFavorite ? "Remove from favorites" : "Add to favorites"}
+              >
+                <StarIcon
+                  className={cn(
+                    "size-3.5 sm:size-3",
+                    props.isFavorite && "fill-current text-warning",
+                  )}
+                />
+              </Button>
+            }
+          />
+          <TooltipPopup side="top" align="center">
+            {props.isFavorite ? "Remove from favorites" : "Add to favorites"}
+          </TooltipPopup>
+        </Tooltip>
+      </div>
     </ComboboxItem>
+  );
+
+  if (!props.disabledReason) {
+    return row;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={row} />
+      <TooltipPopup side="left" align="center">
+        {props.disabledReason}
+      </TooltipPopup>
+    </Tooltip>
   );
 });

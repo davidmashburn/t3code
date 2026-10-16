@@ -1,9 +1,13 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off - NodeHttpServer.layer takes `NodeHttp.createServer` as arg
 import * as NodeHttp from "node:http";
 
-import { NodeHttpServer, NodeRuntime } from "@effect/platform-node";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Config, Effect, FileSystem, Layer, Path } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { NodeHttpServer, NodeRuntime, NodeServices } from "@effect/platform-node";
+import * as Config from "effect/Config";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 interface MockUpdateServerConfig {
   readonly port: number;
@@ -14,11 +18,11 @@ const resolveMockUpdateServerConfig = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const config = yield* Config.all({
-    port: Config.port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.withDefault(3000)),
-    root: Config.string("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_ROOT").pipe(
+    port: Config.Port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.withDefault(3000)),
+    root: Config.String("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_ROOT").pipe(
       Config.withDefault("../release-mock"),
     ),
-  }).asEffect();
+  });
 
   const resolvedRoot = path.resolve(import.meta.dirname, config.root);
 
