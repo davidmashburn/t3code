@@ -214,6 +214,10 @@ watch. Subagents cannot watch pull requests; the thread that delegated to them d
 it yourself, use the row menu in the **Linked pull requests** panel. In the thread details card, a
 watched pull request shows an eye; click it to stop watching.
 
+On web and desktop, open **Pull Requests → Watching** to see watches across projects and
+environments, open their owning threads, or stop individual watches. Disconnected environments show
+last-known data; reconnect before stopping their watches.
+
 A watched thread counts as working between wakes, so it stays in the **Working** section and does
 not auto-settle. Agents stop watching when they hand the work back to you, and the thread then
 returns to your inbox.
