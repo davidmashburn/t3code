@@ -39,6 +39,14 @@ const makeEnvironment = (
 ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
 
 describe("DesktopEnvironment", () => {
+  it.effect("keeps the packaged fork identity compatible with the Alpha installer", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({ isPackaged: true });
+      assert.equal(environment.displayName, "T3 Code (Alpha)");
+      assert.equal(environment.appUserModelId, "com.t3tools.t3code.alpha");
+    }),
+  );
+
   it.effect("derives state paths and development identity inside Effect", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(

@@ -290,5 +290,5 @@ it.effect(
           "assistant-2",
         );
       }).pipe(Effect.provide(mirrorLayer));
-    }).pipe(Effect.provide(layerTest), Effect.provide(NodeServices.layer), Effect.scoped),
+    }).pipe(Effect.provide(layerTest.pipe(Layer.provideMerge(NodeServices.layer))), Effect.scoped),
 );

@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { runMigrations } from "./Migrations.ts";
+import { migrationManifest, runMigrations } from "./Migrations.ts";
 
 const seedFork = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -71,12 +71,10 @@ describe("fork relay migration reconciliation", () => {
         const history = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
         const sessions = yield* sql`SELECT * FROM projection_thread_sessions`;
         const messages = yield* sql`SELECT * FROM projection_thread_messages`;
-        assert.deepStrictEqual(yield* runMigrations(), [
-          [57, "ScheduledTaskWebhooks"],
-          [58, "WebhookRelayDeliveries"],
-          [59, "McpAppModelContext"],
-          [60, "ThreadSnapshotWindowIndexes"],
-        ]);
+        assert.deepStrictEqual(
+          yield* runMigrations(),
+          migrationManifest.filter(([id]) => id > 56),
+        );
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(
           yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 56 ORDER BY migration_id`,

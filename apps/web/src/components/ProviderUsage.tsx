@@ -47,7 +47,7 @@ export function ProviderUsageMeter(props: {
             className={cn(
               "inline-flex size-6 cursor-pointer items-center justify-center rounded-full border border-transparent text-muted-foreground outline-none transition-colors",
               "hover:bg-accent data-[pressed]:bg-accent",
-              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+              "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
             )}
             aria-label={`${providerName} account usage: ${lowestRemaining}% left`}
           >

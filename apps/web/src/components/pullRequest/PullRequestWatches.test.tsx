@@ -50,6 +50,11 @@ vi.mock("../ui/button", () => ({
     <button {...props}>{children}</button>
   ),
 }));
+vi.mock("../ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipPopup: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
 vi.mock("../ui/dialog", () => {
   const Wrapper = ({ children }: { children: ReactNode }) => <div>{children}</div>;
   return {

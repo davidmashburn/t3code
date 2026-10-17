@@ -302,11 +302,11 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     ...windowControlsInsetStyle,
   } as CSSProperties;
 
-  const resolveEnvironmentId = () =>
+  const deepLinkEnvironmentId =
     activeEnvironmentId ?? serverConfig?.environment.environmentId ?? null;
 
   useEffect(() => {
-    const environmentId = resolveEnvironmentId();
+    const environmentId = deepLinkEnvironmentId;
     const pendingThreadId = pendingThreadIdRef.current;
     if (!environmentId || !pendingThreadId) {
       return;
@@ -317,7 +317,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       to: "/$environmentId/$threadId",
       params: { environmentId, threadId: pendingThreadId },
     });
-  }, [activeEnvironmentId, navigate, serverConfig]);
+  }, [deepLinkEnvironmentId, navigate]);
 
   useEffect(() => {
     const onMenuAction = window.desktopBridge?.onMenuAction;
@@ -346,7 +346,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     }
 
     const unsubscribe = onOpenThread((threadId) => {
-      const environmentId = resolveEnvironmentId();
+      const environmentId = deepLinkEnvironmentId;
       if (!environmentId) {
         pendingThreadIdRef.current = threadId;
         return;
@@ -362,7 +362,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     return () => {
       unsubscribe?.();
     };
-  }, [navigate, activeEnvironmentId, serverConfig]);
+  }, [navigate, deepLinkEnvironmentId]);
 
   return (
     <PanelAnimationSuppressionProvider value={panelAnimationsSuppressed}>

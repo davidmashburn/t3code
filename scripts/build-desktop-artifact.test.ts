@@ -268,7 +268,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.1.0"), "T3 Code (Beta)");
+    assert.equal(resolveDesktopProductName("0.1.0"), "T3 Code (Alpha)");
     assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Code (Nightly)");
   });
 
@@ -698,7 +698,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "**/*.map",
       ]);
       assert.deepStrictEqual(mac.dmg, {
-        title: "T3 Code (Beta) 1.2.3 Installer",
+        title: "T3 Code (Alpha) 1.2.3 Installer",
         background: "dmg/dmg-background-latest.png",
         window: { width: 640, height: 432 },
         contents: [
@@ -713,7 +713,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
       ]);
       assert.deepStrictEqual((mac.mac as Record<string, unknown>).protocols, [
-        { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
+        { name: "T3 Code", schemes: ["t3", "t3code", "t3code-dev"] },
         { name: "Web site URL", schemes: ["http", "https"], role: "Viewer" },
       ]);
       const macInfo = (mac.mac as { extendInfo: Record<string, unknown> }).extendInfo;

@@ -1,7 +1,7 @@
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import {
   useAllEnvironmentShellsBootstrapped,
@@ -14,6 +14,7 @@ import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   Dialog,
   DialogDescription,
@@ -76,25 +77,29 @@ function WatchRow({
             {link.host}/{link.repository} #{link.number}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={pending || !connected || !supported || !canOperate}
-          title={
-            !connected
+        <Tooltip>
+          <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={pending || !connected || !supported || !canOperate}
+              aria-label={`Stop watching ${link.repository} #${link.number} in ${thread.title}`}
+              onClick={() => void stop()}
+            >
+              <EyeOffIcon aria-hidden className="size-3.5" />
+              {pending ? "Stopping…" : "Stop"}
+            </Button>
+          </TooltipTrigger>
+          <TooltipPopup>
+            {!connected
               ? "Reconnect to stop this watch"
               : !supported
                 ? "Update this environment to manage watches"
                 : !canOperate
                   ? "This connection cannot manage watches"
-                  : undefined
-          }
-          aria-label={`Stop watching ${link.repository} #${link.number} in ${thread.title}`}
-          onClick={() => void stop()}
-        >
-          <EyeOffIcon aria-hidden className="size-3.5" />
-          {pending ? "Stopping…" : "Stop"}
-        </Button>
+                  : undefined}
+          </TooltipPopup>
+        </Tooltip>
       </div>
       <Link
         to="/$environmentId/$threadId"
@@ -123,7 +128,7 @@ function WatchList({ onOpenThread }: { onOpenThread: () => void }) {
   const projects = useProjects();
   const ready = useAllEnvironmentShellsBootstrapped();
   const { environments } = useEnvironments();
-  const watches = useMemo(() => collectPullRequestWatches(threads), [threads]);
+  const watches = collectPullRequestWatches(threads);
   const unavailable = environments.filter(
     (environment) => environment.connection.phase !== "connected",
   );

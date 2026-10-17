@@ -53,7 +53,10 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
-const solServiceTiers = Effect.fn("solServiceTiers")(function* (ultrafastEntitled: boolean) {
+const solServiceTiers = Effect.fn("solServiceTiers")(function* (
+  ultrafastEntitled: boolean,
+  allowFastServiceTier = true,
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-codex-catalog-" });
@@ -85,7 +88,7 @@ const solServiceTiers = Effect.fn("solServiceTiers")(function* (ultrafastEntitle
 
   const { CODEX_INTERNAL_ORIGINATOR_OVERRIDE: _ambient, ...environment } = process.env;
   const provider = yield* checkCodexProviderStatus(
-    decodeCodexSettings({ binaryPath, homePath: dir }),
+    decodeCodexSettings({ binaryPath, homePath: dir, allowFastServiceTier }),
     undefined,
     { ...environment, FAKE_ULTRAFAST_ENTITLED: ultrafastEntitled ? "1" : "0" },
   );
@@ -96,6 +99,12 @@ const solServiceTiers = Effect.fn("solServiceTiers")(function* (ultrafastEntitle
 });
 
 it.layer(NodeServices.layer, { excludeTestServices: true })("Codex catalog discovery", (it) => {
+  it.effect("keeps Fast hidden after refreshing an entitled account when the setting is off", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* solServiceTiers(true, false), []);
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("keeps Ultrafast when another Codex client wrote the shared catalog cache", () =>
     Effect.gen(function* () {
       assert.deepStrictEqual(yield* solServiceTiers(true), ["default", "priority", "ultrafast"]);
