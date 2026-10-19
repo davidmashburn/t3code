@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import { DateTime } from "effect";
+import * as DateTime from "effect/DateTime";
 
 import {
   formatIssuedPairingCredential,
@@ -13,16 +13,18 @@ it("formats issued pairing credentials with the secret and optional pair URL", (
     {
       id: "pairing-1",
       credential: "secret-pairing-token",
-      role: "client",
+      scopes: ["orchestration:read"],
       subject: "one-time-token",
-      createdAt: DateTime.fromDateUnsafe(new Date("2026-04-08T09:00:00.000Z")),
-      expiresAt: DateTime.fromDateUnsafe(new Date("2026-04-08T10:00:00.000Z")),
+      createdAt: DateTime.makeUnsafe("2026-04-08T09:00:00.000Z"),
+      expiresAt: DateTime.makeUnsafe("2026-04-08T10:00:00.000Z"),
     },
     { baseUrl: "https://example.com", json: false },
   );
 
   expect(output).toContain("secret-pairing-token");
   expect(output).toContain("https://example.com/pair#token=secret-pairing-token");
+  expect(output).toContain("Expires at: 2026-04-08T10:00:00.000Z");
+  expect(output).not.toContain("DateTime.Utc");
 });
 
 it("formats pairing listings without exposing the secret token", () => {
@@ -30,12 +32,11 @@ it("formats pairing listings without exposing the secret token", () => {
     [
       {
         id: "pairing-1",
-        credential: "secret-pairing-token",
         subject: "one-time-token",
         label: "Phone",
-        role: "client",
-        createdAt: DateTime.fromDateUnsafe(new Date("2026-04-08T09:00:00.000Z")),
-        expiresAt: DateTime.fromDateUnsafe(new Date("2026-04-08T10:00:00.000Z")),
+        scopes: ["orchestration:read"],
+        createdAt: DateTime.makeUnsafe("2026-04-08T09:00:00.000Z"),
+        expiresAt: DateTime.makeUnsafe("2026-04-08T10:00:00.000Z"),
       },
     ],
     { json: false },
@@ -50,14 +51,14 @@ it("formats issued sessions with the bearer token but omits tokens from listings
     {
       sessionId: "session-1" as never,
       token: "secret-session-token",
-      method: "bearer-session-token",
-      role: "owner",
+      method: "bearer-access-token",
+      scopes: ["orchestration:read", "access:write"],
       subject: "cli-issued-session",
       client: {
         label: "deploy-bot",
         deviceType: "bot",
       },
-      expiresAt: DateTime.fromDateUnsafe(new Date("2026-04-08T10:00:00.000Z")),
+      expiresAt: DateTime.makeUnsafe("2026-04-08T10:00:00.000Z"),
     },
     { json: false },
   );
@@ -66,8 +67,8 @@ it("formats issued sessions with the bearer token but omits tokens from listings
     [
       {
         sessionId: "session-1" as never,
-        method: "bearer-session-token",
-        role: "owner",
+        method: "bearer-access-token",
+        scopes: ["orchestration:read", "access:write"],
         subject: "cli-issued-session",
         client: {
           label: "deploy-bot",
@@ -75,8 +76,8 @@ it("formats issued sessions with the bearer token but omits tokens from listings
         },
         connected: false,
         current: false,
-        issuedAt: DateTime.fromDateUnsafe(new Date("2026-04-08T09:00:00.000Z")),
-        expiresAt: DateTime.fromDateUnsafe(new Date("2026-04-08T10:00:00.000Z")),
+        issuedAt: DateTime.makeUnsafe("2026-04-08T09:00:00.000Z"),
+        expiresAt: DateTime.makeUnsafe("2026-04-08T10:00:00.000Z"),
         lastConnectedAt: null,
       },
     ],
