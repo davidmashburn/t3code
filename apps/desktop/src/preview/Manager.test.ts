@@ -697,6 +697,11 @@ describe("PreviewManager", () => {
   effectIt.effect.each([
     ["mod+shift+t", "view.reopenClosed"],
     ["ctrl+alt+u", "sidebar.toggle"],
+    ["mod+=", "preview.zoomIn"],
+    ["mod++", "preview.zoomIn"],
+    ["mod+shift++", "preview.zoomIn"],
+    ["mod+-", "preview.zoomOut"],
+    ["mod+0", "preview.resetZoom"],
   ] as const)(
     "forwards only the configured command from the focused guest: %s",
     ([chord, command]) =>

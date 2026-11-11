@@ -325,11 +325,16 @@ describe("root reopen shortcut", () => {
     expect(forwardedCommands()).not.toContain("view.reopenClosed");
   });
 
-  it("always forwards the layout toggles out of a focused desktop browser", async () => {
+  it("forwards layout and page zoom without requiring closed-view history", async () => {
     await render();
     expect(state.setShortcuts).toHaveBeenLastCalledWith([
       expect.objectContaining({ command: "sidebar.toggle" }),
       expect.objectContaining({ command: "rightPanel.toggle" }),
+      expect.objectContaining({ command: "preview.zoomIn" }),
+      expect.objectContaining({ command: "preview.zoomIn" }),
+      expect.objectContaining({ command: "preview.zoomIn" }),
+      expect.objectContaining({ command: "preview.zoomOut" }),
+      expect.objectContaining({ command: "preview.resetZoom" }),
     ]);
   });
 });

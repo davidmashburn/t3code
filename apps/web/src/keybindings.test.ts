@@ -224,6 +224,38 @@ describe("effectiveShortcutsForCommand", () => {
   });
 });
 
+describe("browser zoom shortcuts", () => {
+  it.each(["MacIntel", "Win32"])("handles equals, plus, minus, and reset on %s", (platform) => {
+    for (const [key, shiftKey, command] of [
+      ["=", false, "preview.zoomIn"],
+      ["+", false, "preview.zoomIn"],
+      ["+", true, "preview.zoomIn"],
+      ["-", false, "preview.zoomOut"],
+      ["0", false, "preview.resetZoom"],
+    ] as const) {
+      const input = event({
+        key,
+        shiftKey,
+        metaKey: platform === "MacIntel",
+        ctrlKey: platform !== "MacIntel",
+      });
+      assert.equal(
+        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+          context: { previewFocus: true },
+        }),
+        command,
+      );
+      assert.isNull(
+        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+          context: { previewFocus: false },
+        }),
+      );
+    }
+  });
+});
+
 describe("isTerminalToggleShortcut", () => {
   it("matches Cmd+J on macOS", () => {
     assert.isTrue(

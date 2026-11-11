@@ -40,6 +40,9 @@ const mocks = vi.hoisted(() => ({
   recordingTabIds: new Set<string>(),
   recordingRuntimeTabId: null as string | null,
   recordVisitForThread: vi.fn(),
+  zoomIn: vi.fn(async (_tabId: string) => undefined),
+  zoomOut: vi.fn(async (_tabId: string) => undefined),
+  resetZoom: vi.fn(async (_tabId: string) => undefined),
 }));
 
 const EMPTY_HISTORY: never[] = [];
@@ -213,6 +216,9 @@ vi.mock("~/components/ui/toast", () => ({
 
 vi.mock("./previewBridge", () => ({
   previewBridge: {
+    zoomIn: mocks.zoomIn,
+    zoomOut: mocks.zoomOut,
+    resetZoom: mocks.resetZoom,
     navigate: mocks.navigate,
     pickElement: mocks.pickElement,
     setAnnotationSendEnabled: mocks.setAnnotationSendEnabled,
@@ -367,6 +373,51 @@ describe("PreviewView navigation", () => {
     mocks.recordingTabIds = new Set();
     mocks.recordingRuntimeTabId = null;
     mocks.recordVisitForThread.mockClear();
+    mocks.zoomIn.mockClear();
+    mocks.zoomOut.mockClear();
+    mocks.resetZoom.mockClear();
+  });
+
+  it("routes guest zoom to the visible tab and stops after hiding or losing permission", async () => {
+    const document = installTestDom();
+    const listeners = new Set<(action: string) => void>();
+    Object.assign(window, {
+      desktopBridge: {
+        onMenuAction: (listener: (action: string) => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      },
+    });
+    const emit = (action: string) => listeners.forEach((listener) => listener(action));
+    const { createRoot } = await import("react-dom/client");
+    const root = createRoot(document.createElement("div") as unknown as Element);
+    try {
+      await act(() => {
+        root.render(<PreviewView threadRef={TEST_THREAD_REF} tabId="tab-1" visible />);
+      });
+      await act(() => {
+        emit("preview.zoomIn");
+        emit("preview.zoomOut");
+        emit("preview.resetZoom");
+      });
+      for (const operation of [mocks.zoomIn, mocks.zoomOut, mocks.resetZoom]) {
+        expect(operation).toHaveBeenCalledExactlyOnceWith(TEST_RUNTIME_TAB_ID);
+      }
+      mocks.readEnvironmentScope.mockReturnValue(false);
+      await act(() => emit("preview.zoomIn"));
+      expect(mocks.zoomIn).toHaveBeenCalledTimes(1);
+      mocks.readEnvironmentScope.mockReturnValue(true);
+      await act(() => {
+        root.render(<PreviewView threadRef={TEST_THREAD_REF} tabId="tab-1" visible={false} />);
+      });
+      await act(() => emit("preview.zoomIn"));
+      expect(mocks.zoomIn).toHaveBeenCalledTimes(1);
+      expect(listeners.size).toBe(0);
+    } finally {
+      await act(() => root.unmount());
+      vi.unstubAllGlobals();
+    }
   });
 
   it("shows the cursor in a replacement browser while the old instance still records", async () => {

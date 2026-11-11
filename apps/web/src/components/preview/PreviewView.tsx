@@ -9,6 +9,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   AuthOrchestrationOperateScope,
+  AuthPreviewOperateScope,
   DEFAULT_BROWSER_PROFILE_ID,
   FILL_PREVIEW_VIEWPORT,
   type PreviewAnnotationPayload,
@@ -873,32 +874,41 @@ export function PreviewView({
 
   // Subscribe only while visible; `toggle-panel` is owned by ChatView's
   // URL-aware handler regardless of whether the panel is currently mounted.
-  const onPreviewAction = useEffectEvent(
-    (action: Parameters<Parameters<typeof subscribePreviewAction>[0]>[0]) => {
-      switch (action) {
-        case "refresh":
-          handleRefresh();
-          return;
-        case "focus-url":
-          setFocusUrlNonce((value) => (value ?? 0) + 1);
-          return;
-        case "zoom-in":
-          handleZoomIn();
-          return;
-        case "zoom-out":
-          handleZoomOut();
-          return;
-        case "reset-zoom":
-          handleResetZoom();
-          return;
-        case "toggle-panel":
-          return;
-      }
-    },
-  );
+  const onPreviewAction = useEffectEvent((action: string) => {
+    if (!readEnvironmentScope(threadRef.environmentId, AuthPreviewOperateScope)) return;
+    switch (action) {
+      case "refresh":
+        handleRefresh();
+        return;
+      case "focus-url":
+        setFocusUrlNonce((value) => (value ?? 0) + 1);
+        return;
+      case "zoom-in":
+      case "preview.zoomIn":
+        handleZoomIn();
+        return;
+      case "zoom-out":
+      case "preview.zoomOut":
+        handleZoomOut();
+        return;
+      case "reset-zoom":
+      case "preview.resetZoom":
+        handleResetZoom();
+        return;
+      case "toggle-panel":
+        return;
+    }
+  });
   useEffect(() => {
     if (!visible) return;
-    return subscribePreviewAction((action) => onPreviewAction(action));
+    const onAction = (action: string) => onPreviewAction(action);
+    const unsubscribeAction = subscribePreviewAction(onAction);
+    // Focused Electron guests forward commands instead of DOM keydown events.
+    const unsubscribeMenu = window.desktopBridge?.onMenuAction(onAction);
+    return () => {
+      unsubscribeAction();
+      unsubscribeMenu?.();
+    };
   }, [visible]);
 
   return (
