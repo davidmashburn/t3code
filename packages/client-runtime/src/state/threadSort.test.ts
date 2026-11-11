@@ -5,6 +5,7 @@ import {
   activeThreadAnchorTimestampMs,
   generateSpreadPinOrderKeys,
   getLatestThreadForProject,
+  orderKeyAfterAll,
   pinOrderKeyBetween,
   planPinnedMove,
   planPinnedReorder,
@@ -391,6 +392,21 @@ describe("generateSpreadPinOrderKeys", () => {
       }
     },
   );
+});
+
+describe("orderKeyAfterAll", () => {
+  it("sorts the new key below every keyless and keyed active thread", () => {
+    const key = orderKeyAfterAll([null, "b", "m", "!!!"]);
+    expect(key).not.toBeNull();
+    expect(key! > "m").toBe(true);
+    expect(
+      sortActiveThreadsByOrderKey([
+        { id: "old", createdAt: "2026-01-01T00:00:00.000Z", activeOrderKey: null },
+        { id: "keyed", createdAt: "2026-01-02T00:00:00.000Z", activeOrderKey: "m" },
+        { id: "now", createdAt: "2026-06-01T00:00:00.000Z", activeOrderKey: key },
+      ]).map((thread) => thread.id),
+    ).toEqual(["old", "keyed", "now"]);
+  });
 });
 
 describe("sortActiveThreadsByOrderKey", () => {

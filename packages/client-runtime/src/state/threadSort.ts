@@ -205,6 +205,17 @@ export function pinOrderKeyBetween(before: string | null, after: string | null):
   return pinOrderMidpoint(a, b);
 }
 
+/** Key that sorts after every existing active order key. Keyed threads render
+ *  below keyless ones, so this key is the bottom row: the thread to work next. */
+export function orderKeyAfterAll(keys: readonly (string | null | undefined)[]): string | null {
+  let max: string | null = null;
+  for (const key of keys) {
+    if (key == null || !isValidPinOrderKey(key)) continue;
+    if (max === null || key > max) max = key;
+  }
+  return pinOrderKeyBetween(max, null);
+}
+
 export function generateSpreadPinOrderKeys(count: number): string[] {
   let width = 2;
   let space = PIN_ORDER_DIGITS.length ** width;

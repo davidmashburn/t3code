@@ -55,6 +55,7 @@ import {
   sortSidebarV2ProjectGroups,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
+  threadKeyAfterPark,
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
   type SidebarListItem,
   type SidebarListMarker,
@@ -1998,7 +1999,7 @@ describe("sortPinnedThreadsForSidebar", () => {
     pinOrderKey: input.pinOrderKey ?? null,
   });
 
-  it("sorts keyed threads by key ahead of keyless threads in creation order", () => {
+  it("puts the smallest pin key first, ahead of keyless pins", () => {
     const sorted = sortPinnedThreadsForSidebar([
       pinnable({ id: "keyless-old", createdAt: "2026-03-09T08:00:00.000Z" }),
       pinnable({ id: "second", createdAt: "2026-03-09T09:00:00.000Z", pinOrderKey: "t" }),
@@ -2079,6 +2080,80 @@ describe("navigation after parking a thread", () => {
       ).toBe(expected);
     },
   );
+
+  it("opens the bottom active thread", () => {
+    const pinnedKeys = ["older-pin", "next-pin"];
+    const activeKeys = ["newest", "middle", "bottom"];
+    const orderedKeys = [...pinnedKeys, ...activeKeys, "working"];
+    const skipKeys = new Set<string>();
+    const park = (parkedKey: string, skip = skipKeys) =>
+      threadKeyAfterPark({ pinnedKeys, activeKeys, orderedKeys, parkedKey, skipKeys: skip });
+
+    expect(park("newest")).toBe("bottom");
+    expect(park("middle")).toBe("bottom");
+    expect(park("bottom")).toBe("middle");
+    expect(park("newest", new Set(["bottom"]))).toBe("middle");
+    expect(park("older-pin")).toBe("bottom");
+    expect(park("next-pin")).toBe("bottom");
+    expect(park("working")).toBe("bottom");
+  });
+
+  it("skips pins once the active list is empty", () => {
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: ["older-pin", "next-pin"],
+        activeKeys: ["only"],
+        orderedKeys: ["older-pin", "next-pin", "only"],
+        parkedKey: "only",
+        skipKeys: new Set(),
+      }),
+    ).toBeNull();
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: ["only-pin"],
+        activeKeys: ["bottom"],
+        orderedKeys: ["only-pin", "bottom"],
+        parkedKey: "only-pin",
+        skipKeys: new Set(),
+      }),
+    ).toBe("bottom");
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: ["pin"],
+        activeKeys: [],
+        orderedKeys: ["pin", "working"],
+        parkedKey: "pin",
+        skipKeys: new Set(),
+      }),
+    ).toBe("working");
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: ["pinned-row"],
+        activeKeys: ["only"],
+        orderedKeys: ["pinned-row", "only"],
+        parkedKey: "only",
+        skipKeys: new Set(),
+      }),
+    ).toBeNull();
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: [],
+        activeKeys: [],
+        orderedKeys: ["settled"],
+        parkedKey: "settled",
+        skipKeys: new Set(["settled"]),
+      }),
+    ).toBeNull();
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: [],
+        activeKeys: [],
+        orderedKeys: ["pinned"],
+        parkedKey: "missing",
+        skipKeys: new Set(),
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("unseen completion with background work", () => {

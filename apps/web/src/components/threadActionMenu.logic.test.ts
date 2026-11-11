@@ -22,6 +22,7 @@ const baseState: ThreadActionMenuState = {
     autoSettleOptOut: true,
     snooze: true,
     pinning: true,
+    activeReorder: true,
     titleRegeneration: true,
   },
   snoozePresets: [
@@ -52,6 +53,7 @@ describe("buildThreadActionMenuItems", () => {
       });
       const expected = reversed
         ? [
+            "prioritize",
             "unpin",
             "unsettle",
             "unsnooze",
@@ -62,6 +64,7 @@ describe("buildThreadActionMenuItems", () => {
             "delete",
           ]
         : [
+            "prioritize",
             "pin",
             "settle",
             "snooze",
@@ -100,6 +103,7 @@ describe("buildThreadActionMenuItems", () => {
           autoSettleOptOut: false,
           snooze: false,
           pinning: false,
+          activeReorder: false,
           titleRegeneration: false,
         },
       }),

@@ -212,6 +212,7 @@ import {
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
+  threadKeyAfterPark,
   shouldRecedeSidebarThread,
   resolveWorkingStartedAt,
   sidebarListItemId,
@@ -2606,6 +2607,7 @@ export default function Sidebar() {
     snoozeThread,
     unsnoozeThread,
     pinThread,
+    prioritizeThread,
     unpinThread,
     confirmAndUnpinThread,
     setThreadAutoSettle,
@@ -2941,6 +2943,8 @@ export default function Sidebar() {
   }, [activeSearchResultKey]);
 
   const orderedThreadKeysRef = useRef(orderedThreadKeys);
+  const pinnedKeysRef = useRef(pinnedKeys);
+  const activeKeysRef = useRef(activeKeys);
   // Handlers read these through refs: depending on per-update Map/Set
   // identities would give every row a fresh callback prop on each shell
   // event and defeat row memoization during streaming.
@@ -3103,16 +3107,16 @@ export default function Sidebar() {
   ): (() => void) | null => {
     if (routeThreadKeyRef.current !== threadKey) return null;
     const shell = threadByKeyRef.current.get(threadKey);
-    const orderedKeys = orderedThreadKeysRef.current;
-    const settledKeys = settledThreadKeysRef.current;
-    const snoozedKeys = snoozedThreadKeysRef.current;
-    const currentIndex = orderedKeys.indexOf(threadKey);
-    const nextCardKey =
-      currentIndex === -1
-        ? null
-        : ([...orderedKeys.slice(currentIndex + 1), ...orderedKeys.slice(0, currentIndex)].find(
-            (key) => !settledKeys.has(key) && !snoozedKeys.has(key) && !coParkingKeys?.has(key),
-          ) ?? null);
+    const skipKeys = new Set(coParkingKeys);
+    for (const key of settledThreadKeysRef.current) skipKeys.add(key);
+    for (const key of snoozedThreadKeysRef.current) skipKeys.add(key);
+    const nextCardKey = threadKeyAfterPark({
+      pinnedKeys: pinnedKeysRef.current,
+      activeKeys: activeKeysRef.current,
+      orderedKeys: orderedThreadKeysRef.current,
+      parkedKey: threadKey,
+      skipKeys,
+    });
     const nextThread = nextCardKey ? threadByKeyRef.current.get(nextCardKey) : null;
     return nextThread
       ? () => navigateToThread(scopeThreadRef(nextThread.environmentId, nextThread.id))
@@ -3281,6 +3285,8 @@ export default function Sidebar() {
     routeThreadKeyRef.current = routeThreadKey;
     projectGroupsRef.current = projectGroups;
     orderedThreadKeysRef.current = orderedThreadKeys;
+    pinnedKeysRef.current = pinnedKeys;
+    activeKeysRef.current = activeKeys;
     threadByKeyRef.current = threadByKey;
     handleNewThreadRef.current = newThreadContext.handleNewThread;
     settledThreadKeysRef.current = settledThreadKeys;
@@ -3358,6 +3364,20 @@ export default function Sidebar() {
   ) {
     setOptimisticDrop(null);
   }
+  const attemptPrioritize = (threadRef: ScopedThreadRef) => {
+    void prioritizeThread(threadRef).then((result) => {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to prioritize thread",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+    });
+  };
   const attemptPin = (threadRef: ScopedThreadRef) => {
     void (async () => {
       // Fresh pins take the top of the arranged run: pinThread computes a
@@ -4092,6 +4112,9 @@ export default function Sidebar() {
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
         const supportsPinning =
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadPinning === true;
+        const supportsActiveReorder =
+          serverConfigs.get(thread.environmentId)?.environment.capabilities.threadActiveReorder ===
+          true;
         const supportsAutoSettleOptOut =
           serverConfigs.get(thread.environmentId)?.environment.capabilities
             .threadAutoSettleOptOut === true;
@@ -4137,6 +4160,7 @@ export default function Sidebar() {
                 autoSettleOptOut: supportsAutoSettleOptOut,
                 snooze: supportsSnooze,
                 pinning: supportsPinning,
+                activeReorder: supportsActiveReorder,
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
@@ -4200,6 +4224,9 @@ export default function Sidebar() {
             return;
           case "unsnooze":
             attemptUnsnooze(threadRef);
+            return;
+          case "prioritize":
+            attemptPrioritize(threadRef);
             return;
           case "pin":
             attemptPin(threadRef);

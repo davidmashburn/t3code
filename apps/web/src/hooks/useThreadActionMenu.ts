@@ -26,6 +26,7 @@ import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { readEnvironmentScope } from "../state/session";
 import {
   readEnvironmentSupportsAutoSettleOptOut,
+  readEnvironmentSupportsActiveReorder,
   readEnvironmentSupportsPinning,
   readEnvironmentSupportsSettlement,
   readEnvironmentSupportsSnooze,
@@ -78,6 +79,7 @@ export function useThreadActionMenu(input: {
     snoozeThread,
     unsnoozeThread,
     pinThread,
+    prioritizeThread,
     confirmAndUnpinThread,
     setThreadAutoSettle,
     archiveThread,
@@ -124,6 +126,7 @@ export function useThreadActionMenu(input: {
         autoSettleOptOut: readEnvironmentSupportsAutoSettleOptOut(threadRef.environmentId),
         snooze: readEnvironmentSupportsSnooze(threadRef.environmentId),
         pinning: readEnvironmentSupportsPinning(threadRef.environmentId),
+        activeReorder: readEnvironmentSupportsActiveReorder(threadRef.environmentId),
         titleRegeneration: readEnvironmentSupportsTitleRegeneration(threadRef.environmentId),
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
@@ -214,6 +217,9 @@ export function useThreadActionMenu(input: {
           return;
         case "unsnooze":
           await reportFailure("Failed to wake thread", () => unsnoozeThread(threadRef));
+          return;
+        case "prioritize":
+          await reportFailure("Failed to prioritize thread", () => prioritizeThread(threadRef));
           return;
         case "pin":
           await reportFailure("Failed to pin thread", () => pinThread(threadRef));
