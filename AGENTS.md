@@ -86,6 +86,18 @@ The most common defect in this repo is a change that works on the path you teste
 - Stop what you started, by the PID you tracked. See rule 1.
 - Need a second checkout? `git worktree add` it next to this worktree, not in `/tmp`. Remove it when done.
 
+## Rebuilding the installed Alpha app
+
+- From an agent running inside T3 Code, **only** use `vp run rebuild:desktop:alpha` to build,
+  install, and relaunch the local Alpha desktop app.
+- Never run `vp run install:desktop:alpha`, the installer script, `nohup`, background shell jobs, or
+  `launchctl submit` from a T3-hosted agent. The direct installer quits the app hosting the agent,
+  and `launchctl submit` infers restart behavior that can create an endless reinstall loop.
+- The safe rebuild command builds and validates the DMG first, then hands exactly one install
+  attempt to a non-`KeepAlive` user launch agent. Installer output is written to
+  `/tmp/t3code-alpha-rebuild.log`. Regular upstream bundles are rejected before quitting anything;
+  see [Alpha rebuild prerequisites](docs/operations/development.md#local-alpha-rebuild).
+
 ## Test data
 
 An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:

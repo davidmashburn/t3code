@@ -286,6 +286,20 @@ DMGs default to the host architecture. Use `--arch` to choose another target and
 to retain packaging files for inspection. Run `vp run dist:desktop:artifact --help` for other
 options.
 
+### Local Alpha rebuild
+
+To rebuild and reinstall a local Alpha app from a T3-hosted agent on macOS, use
+`vp run rebuild:desktop:alpha`. It builds first, then schedules one install attempt in a
+non-`KeepAlive` user launch agent so installation survives the hosting app quitting.
+Output is written to `/tmp/t3code-alpha-rebuild.log`.
+
+The installer requires `T3 Code (Alpha).app` with bundle ID `com.t3tools.t3code.alpha`.
+The upstream builder currently produces the regular T3 Code app, so the default rebuild
+will reject that artifact before quitting or replacing anything. To reinstall an
+existing Alpha-compatible DMG, use `vp run rebuild:desktop:alpha --dmg /absolute/path/to/alpha.dmg`.
+The replacement is staged and validated before the installed Alpha app is quit. This
+command replaces only `/Applications/T3 Code (Alpha).app`; it does not migrate runtime data.
+
 ### Prepared server bytecode
 
 Native macOS and Windows desktop artifact builds, and native Linux x64 and ARM64 builds, generate server
