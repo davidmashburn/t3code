@@ -17,6 +17,7 @@ import { workspaceAreaProps } from "../../lib/workspaceFocus";
 import { PullRequestCompactFilterMenu } from "./PullRequestCompactFilterMenu";
 import type { PullRequestFilterOption } from "./PullRequestListFilters";
 import { INVOLVEMENT_TABS, STATE_TABS } from "./pullRequestListOptions";
+import { PullRequestWatches } from "./PullRequestWatches";
 
 function ExpandableSearch({
   searchInput,
@@ -211,6 +212,9 @@ export function PullRequestsColumn({
           </WorkspaceBreadcrumb>
         )}
         <div className="min-w-0 flex-1" />
+        <div className="shrink-0 [-webkit-app-region:no-drag]">
+          <PullRequestWatches />
+        </div>
         {condensed ? (
           <div ref={topbarSearchRef} className="flex shrink items-center gap-1.5">
             <ExpandableSearch
