@@ -11,6 +11,7 @@ import {
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
+  CodexSettings,
   DEFAULT_SERVER_SETTINGS,
   globalIdleCompaction,
   idleCompactionPatch,
@@ -528,5 +529,14 @@ describe("server model preferences", () => {
     const input = { favorites: [], providerModelPreferences: {} };
     expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
     expect(decodeServerSettingsPatch(input)).toEqual(input);
+  });
+});
+
+describe("Codex Fast opt-in", () => {
+  it("defaults existing settings to disabled and preserves explicit choices", () => {
+    const decode = Schema.decodeUnknownSync(CodexSettings);
+    expect(decode({}).allowFastServiceTier).toBe(false);
+    expect(decode({ allowFastServiceTier: false }).allowFastServiceTier).toBe(false);
+    expect(decode({ allowFastServiceTier: true }).allowFastServiceTier).toBe(true);
   });
 });

@@ -16,6 +16,19 @@ import {
 } from "./ProviderSettingsForm";
 
 describe("ProviderSettingsForm helpers", () => {
+  it("exposes the Codex Fast service tier setting", () => {
+    const codex = providerClients.get(ProviderDriverKind.make("codex"));
+
+    expect(codex).toBeDefined();
+    const fastServiceTier = deriveProviderSettingsFields(codex!).find(
+      (field) => field.key === "allowFastServiceTier",
+    );
+    expect(fastServiceTier).toMatchObject({
+      label: "Allow Fast service tier",
+      control: "switch",
+    });
+  });
+
   it("keeps every masked field as a stored secret and offers a reference only where typed so", () => {
     const settingsSchema = makeProviderSettingsSchema({
       token: TrimmedString.pipe(

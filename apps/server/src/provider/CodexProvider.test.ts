@@ -7,36 +7,39 @@ import {
 } from "./CodexProvider.ts";
 
 it("maps current Codex model capability fields", () => {
-  const capabilities = mapCodexModelCapabilities({
-    additionalSpeedTiers: [],
-    defaultReasoningEffort: "super-high",
-    description: "Test model",
-    displayName: "GPT Test",
-    hidden: false,
-    id: "gpt-test",
-    isDefault: true,
-    model: "gpt-test",
-    availableAccessPrograms: { cyber: ["standard", "daybreakBlue"] },
-    defaultServiceTier: "flex",
-    serviceTiers: [
-      {
-        id: "priority",
-        name: "Fast",
-        description: "Lower latency responses.",
-      },
-      {
-        id: "flex",
-        name: "Flex",
-        description: "Lower-cost asynchronous routing.",
-      },
-    ],
-    supportedReasoningEfforts: [
-      {
-        description: "Maximum reasoning",
-        reasoningEffort: "super-high",
-      },
-    ],
-  });
+  const capabilities = mapCodexModelCapabilities(
+    {
+      additionalSpeedTiers: [],
+      defaultReasoningEffort: "super-high",
+      description: "Test model",
+      displayName: "GPT Test",
+      hidden: false,
+      id: "gpt-test",
+      isDefault: true,
+      model: "gpt-test",
+      availableAccessPrograms: { cyber: ["standard", "daybreakBlue"] },
+      defaultServiceTier: "flex",
+      serviceTiers: [
+        {
+          id: "priority",
+          name: "Fast",
+          description: "Lower latency responses.",
+        },
+        {
+          id: "flex",
+          name: "Flex",
+          description: "Lower-cost asynchronous routing.",
+        },
+      ],
+      supportedReasoningEfforts: [
+        {
+          description: "Maximum reasoning",
+          reasoningEffort: "super-high",
+        },
+      ],
+    },
+    { allowFastServiceTier: true },
+  );
 
   assert.deepStrictEqual(capabilities.optionDescriptors, [
     {
@@ -79,11 +82,11 @@ it("maps current Codex model capability fields", () => {
   ]);
 });
 
-it("uses standard routing when the catalog has no default service tier", () => {
+it("hides Fast service tiers unless the Codex setting allows them", () => {
   const capabilities = mapCodexModelCapabilities({
     additionalSpeedTiers: ["fast"],
     defaultReasoningEffort: "medium",
-    defaultServiceTier: null,
+    defaultServiceTier: "priority",
     description: "Test model",
     displayName: "GPT Test",
     hidden: false,
@@ -105,27 +108,37 @@ it("uses standard routing when the catalog has no default service tier", () => {
     supportedReasoningEfforts: [],
   });
 
-  assert.deepStrictEqual(capabilities.optionDescriptors, [
-    {
-      id: "serviceTier",
-      label: "Service Tier",
-      type: "select",
-      options: [
-        { id: "default", label: "Standard", isDefault: true },
-        {
-          id: "priority",
-          label: "Fast",
-          description: "1.5x speed, increased usage",
-        },
-        {
-          id: "ultrafast",
-          label: "Ultrafast",
-          description: "Even faster, more expensive",
-        },
-      ],
-      currentValue: "default",
-    },
-  ]);
+  assert.deepStrictEqual(capabilities.optionDescriptors, []);
+});
+
+it("filters legacy speed tiers and falls back from a premium default to Standard", () => {
+  const model = {
+    id: "gpt-test",
+    model: "gpt-test",
+    displayName: "GPT Test",
+    description: "Test model",
+    hidden: false,
+    isDefault: false,
+    defaultReasoningEffort: "medium",
+    supportedReasoningEfforts: [],
+    defaultServiceTier: "ultrafast",
+    additionalSpeedTiers: ["fast", "ultrafast", "flex"],
+  };
+  const disabled = mapCodexModelCapabilities(model).optionDescriptors?.[0];
+  assert(disabled?.type === "select");
+  assert.equal(disabled.currentValue, "default");
+  assert.deepStrictEqual(
+    disabled.options.map((tier) => tier.id),
+    ["default", "flex"],
+  );
+  const enabled = mapCodexModelCapabilities(model, { allowFastServiceTier: true })
+    .optionDescriptors?.[0];
+  assert(enabled?.type === "select");
+  assert.equal(enabled.currentValue, "ultrafast");
+  assert.deepStrictEqual(
+    enabled.options.map((tier) => tier.id),
+    ["default", "fast", "ultrafast", "flex"],
+  );
 });
 
 it("marks the most preferred available model as default", () => {

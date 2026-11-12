@@ -176,6 +176,7 @@ function withFakeCodexEnv<A, E, R>(
     defaultModel?: string;
     customModels?: ReadonlyArray<string>;
     managedRuntime?: boolean;
+    allowFastServiceTier?: boolean;
   },
   effectFn: (textGeneration: TextGeneration.TextGeneration["Service"]) => Effect.Effect<A, E, R>,
 ) {
@@ -185,6 +186,7 @@ function withFakeCodexEnv<A, E, R>(
     const codexPath = yield* makeFakeCodexBinary(tempDir, input);
     const config = decodeCodexSettings({
       binaryPath: codexPath,
+      allowFastServiceTier: input.allowFastServiceTier,
       launchArgs: input.launchArgs,
       customModels: input.customModels,
     });
@@ -329,6 +331,55 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
           ),
         }),
     ),
+  );
+
+  it.effect(
+    "forwards codex service tier and non-default reasoning effort into codex exec config",
+    () =>
+      withFakeCodexEnv(
+        {
+          output: JSON.stringify({
+            subject: "Add important change",
+            body: "",
+          }),
+          requireServiceTier: "flex",
+          requireReasoningEffort: "xhigh",
+          stdinMustNotContain: "branch must be a short semantic git branch fragment",
+        },
+        (textGeneration) =>
+          textGeneration.generateCommitMessage({
+            cwd: process.cwd(),
+            branch: "feature/codex-effect",
+            stagedSummary: "M README.md",
+            stagedPatch: "diff --git a/README.md b/README.md",
+            modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
+              { id: "reasoningEffort", value: "xhigh" },
+              { id: "serviceTier", value: "flex" },
+            ]),
+          }),
+      ),
+  );
+
+  it.effect.each([false, true])(
+    "gates Fast in codex exec when opt-in is %s",
+    (allowFastServiceTier) =>
+      withFakeCodexEnv(
+        {
+          output: JSON.stringify({ title: "Live title" }),
+          allowFastServiceTier,
+          ...(allowFastServiceTier
+            ? { requireServiceTier: "priority" }
+            : { forbidArg: 'service_tier="priority"' }),
+        },
+        (textGeneration) =>
+          textGeneration.generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Describe this change",
+            modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
+              { id: "serviceTier", value: "priority" },
+            ]),
+          }),
+      ),
   );
 
   it.effect("omits a persisted service tier for managed ChatGPT text generation", () =>

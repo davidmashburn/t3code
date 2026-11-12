@@ -105,7 +105,8 @@ const make = Effect.gen(function* () {
         )
       )
         continue;
-      const tier = getCodexServiceTierOptionValue(selection.value);
+      // Historical billing must retain Fast even when new requests no longer allow it.
+      const tier = getCodexServiceTierOptionValue(selection.value, { allowFastServiceTier: true });
       if (tier === "fast" || tier === "priority") resolved.set(request, "fast");
       else if (tier === "ultrafast") resolved.set(request, "ultrafast");
       else if (tier === undefined || tier === "default" || tier === "standard") {

@@ -289,6 +289,40 @@ describe("CodexAdapterV2 runtime policy", () => {
       assert.isDefined(withT3.additionalContext?.["t3_code_runtime"]);
     }),
   );
+
+  it.effect("gates Codex Fast service tiers behind the provider setting", () =>
+    Effect.gen(function* () {
+      const input = {
+        nativeThreadId: "native-fast-service-tier",
+        codexInput: [{ type: "text" as const, text: "test" }],
+        runtimePolicy: {
+          runtimeMode: "full-access" as const,
+          interactionMode: "default" as const,
+          cwd: null,
+        },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.4",
+          options: [{ id: "serviceTier", value: "priority" }],
+        },
+      };
+
+      const disabled = yield* CodexAdapterV2.buildCodexTurnStartParams(input);
+      const enabled = yield* CodexAdapterV2.buildCodexTurnStartParams({
+        ...input,
+        allowFastServiceTier: true,
+      });
+      const managed = yield* CodexAdapterV2.buildCodexTurnStartParams({
+        ...input,
+        allowFastServiceTier: true,
+        omitServiceTier: true,
+      });
+
+      assert.isUndefined(disabled.serviceTier);
+      assert.equal(enabled.serviceTier, "priority");
+      assert.isUndefined(managed.serviceTier);
+    }),
+  );
 });
 
 describe("CodexAdapterV2 native protocol logging", () => {

@@ -47,6 +47,7 @@ import {
 } from "@t3tools/provider-core/server/snapshotProbe";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
+import { isCodexFastServiceTier } from "../codexModelOptions.ts";
 import {
   codexRateLimitsFailureMessage,
   codexRateLimitsToLimits,
@@ -238,6 +239,7 @@ export function codexDefaultReasoningEffortOverride(model: string): "medium" | u
 
 export function mapCodexModelCapabilities(
   model: CodexSchema.V2ModelListResponse__Model,
+  options?: { readonly allowFastServiceTier?: boolean },
 ): ModelCapabilities {
   const reasoningOptions = model.supportedReasoningEfforts.map(({ reasoningEffort }) =>
     reasoningEffort ===
@@ -253,7 +255,7 @@ export function mapCodexModelCapabilities(
         },
   );
   const defaultReasoning = reasoningOptions.find((option) => option.isDefault)?.id;
-  const serviceTiers =
+  const advertisedServiceTiers =
     model.serviceTiers && model.serviceTiers.length > 0
       ? model.serviceTiers
       : (model.additionalSpeedTiers ?? []).map((id) => ({
@@ -261,6 +263,9 @@ export function mapCodexModelCapabilities(
           name: id === "fast" ? "Fast" : id,
           description: "",
         }));
+  const serviceTiers = options?.allowFastServiceTier
+    ? advertisedServiceTiers
+    : advertisedServiceTiers.filter((tier) => !isCodexFastServiceTier(tier));
   const catalogDefaultServiceTier = serviceTiers.some(
     (tier) => tier.id === model.defaultServiceTier,
   )
@@ -329,13 +334,14 @@ export function mapCodexModelCapabilities(
 
 function parseCodexModelListResponse(
   response: CodexSchema.V2ModelListResponse,
+  allowFastServiceTier: boolean,
 ): ReadonlyArray<ServerProviderModel> {
   return response.data.map((model) => ({
     slug: model.model,
     name: formatCodexModelName(model.displayName),
     isCustom: false,
     ...(model.isDefault ? { isDefault: true } : {}),
-    capabilities: mapCodexModelCapabilities(model),
+    capabilities: mapCodexModelCapabilities(model, { allowFastServiceTier }),
   }));
 }
 
@@ -500,6 +506,7 @@ function parseCodexSkillsListResponse(
 
 const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
   client: CodexClient.CodexAppServerClient["Service"],
+  allowFastServiceTier: boolean,
 ) {
   const models: ServerProviderModel[] = [];
   let cursor: string | null | undefined = undefined;
@@ -509,7 +516,7 @@ const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
       "model/list",
       cursor ? { cursor } : {},
     );
-    models.push(...parseCodexModelListResponse(response));
+    models.push(...parseCodexModelListResponse(response, allowFastServiceTier));
     cursor = response.nextCursor;
   } while (cursor);
 
@@ -558,9 +565,10 @@ const requestCodexChatGptModels = Effect.fn("requestCodexChatGptModels")(functio
   readonly codexHome: string;
   readonly spawnedAtMs: number;
   readonly deadlineMs: number;
+  readonly allowFastServiceTier: boolean;
 }) {
   const models = yield* withCodexDiscoveryDeadline(
-    requestAllCodexModels(input.client),
+    requestAllCodexModels(input.client, input.allowFastServiceTier),
     input.deadlineMs,
   );
   if (models === undefined) return undefined;
@@ -581,8 +589,10 @@ const requestCodexChatGptModels = Effect.fn("requestCodexChatGptModels")(functio
     return models;
   }
   return (
-    (yield* withCodexDiscoveryDeadline(requestAllCodexModels(input.client), input.deadlineMs)) ??
-    models
+    (yield* withCodexDiscoveryDeadline(
+      requestAllCodexModels(input.client, input.allowFastServiceTier),
+      input.deadlineMs,
+    )) ?? models
   );
 });
 
@@ -698,6 +708,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   readonly cwd: string;
   readonly environment?: NodeJS.ProcessEnv;
   readonly skipNativeUsage?: boolean;
+  readonly allowFastServiceTier?: boolean;
 }) {
   const spawnedAtMs = DateTime.toEpochMillis(yield* DateTime.now);
   const { client, initialize } = yield* withCodexAppServerClient(input);
@@ -726,8 +737,12 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
             codexHome: initialize.codexHome,
             spawnedAtMs,
             deadlineMs,
+            allowFastServiceTier: input.allowFastServiceTier === true,
           })
-        : withCodexDiscoveryDeadline(requestAllCodexModels(client), deadlineMs),
+        : withCodexDiscoveryDeadline(
+            requestAllCodexModels(client, input.allowFastServiceTier === true),
+            deadlineMs,
+          ),
       // The shared catalog must exclude config from the server's launch project.
       withCodexDiscoveryDeadline(
         client.request("config/read", { includeLayers: false }),
@@ -915,6 +930,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     readonly cwd: string;
     readonly environment?: NodeJS.ProcessEnv;
     readonly skipNativeUsage?: boolean;
+    readonly allowFastServiceTier?: boolean;
   }) => Effect.Effect<
     CodexAppServerProviderSnapshot,
     CodexErrors.CodexAppServerError,
@@ -955,6 +971,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     cwd: process.cwd(),
     environment: resolvedEnvironment,
     ...(managedAuth ? { skipNativeUsage: true } : {}),
+    allowFastServiceTier: codexSettings.allowFastServiceTier,
   }).pipe(
     // Process teardown can outlast the work budget without discarding a completed snapshot.
     Effect.timeoutOption(Duration.millis(CODEX_AUTH_PROBE_TIMEOUT_MS)),
