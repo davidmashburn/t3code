@@ -70,6 +70,29 @@ export function shouldNavigateAfterThreadPark(input: {
   );
 }
 
+export function threadKeyAfterPark(input: {
+  readonly pinnedKeys: readonly string[];
+  readonly activeKeys: readonly string[];
+  readonly orderedKeys: readonly string[];
+  readonly parkedKey: string;
+  readonly skipKeys: ReadonlySet<string>;
+}): string | null {
+  for (let index = input.activeKeys.length - 1; index >= 0; index -= 1) {
+    const key = input.activeKeys[index]!;
+    if (key !== input.parkedKey && !input.skipKeys.has(key)) return key;
+  }
+  // Pins are a shelf, not the next item of work, even when the active list is empty.
+  const pinned = new Set(input.pinnedKeys);
+  const currentIndex = input.orderedKeys.indexOf(input.parkedKey);
+  if (currentIndex === -1) return null;
+  return (
+    [
+      ...input.orderedKeys.slice(currentIndex + 1),
+      ...input.orderedKeys.slice(0, currentIndex),
+    ].find((key) => key !== input.parkedKey && !input.skipKeys.has(key) && !pinned.has(key)) ?? null
+  );
+}
+
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;
 
 export function resolveSidebarRowAccessibility(input: {

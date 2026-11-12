@@ -34,7 +34,10 @@ import {
   createInboxReturnTracker,
   isThreadWorking,
 } from "@t3tools/client-runtime/state/thread-inbox";
-import { sortSettledThreads } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  compareActiveThreadOrderKeys,
+  sortSettledThreads,
+} from "@t3tools/client-runtime/state/thread-sort";
 import {
   nextShownOrder,
   threadSearchMatchKey,
@@ -127,7 +130,7 @@ import { useOrderWhileOpen } from "../hooks/useOrderWhileOpen";
 import { useProjectPin } from "../hooks/useProjectGroupUpdate";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
-import { registerSettleAndAdvance } from "../settleAndAdvance";
+import { registerSettleAndAdvance, registerSnoozeAndAdvance } from "../settleAndAdvance";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
@@ -197,6 +200,7 @@ import {
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
+  threadKeyAfterPark,
   sidebarListItemId,
   sidebarThreadKeyAtY,
   sortInboxThreadsByReturn,
@@ -679,9 +683,11 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   // Availability gates dragging only; sorting must stay consistent across clients.
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
   const sortedActive = sortActiveBySend
-    ? sortWorkingThreadsBySend(active)
+    ? sortWorkingThreadsBySend(active).sort(compareActiveThreadOrderKeys)
     : workingShelfEnabled
-      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
+      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt).sort(
+          compareActiveThreadOrderKeys,
+        )
       : sortThreadsForSidebar(active);
   return {
     pinnedThreads:
@@ -924,6 +930,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     snoozeThread,
     unsnoozeThread,
     pinThread,
+    prioritizeThread,
     unpinThread,
     confirmAndUnpinThread,
     setThreadAutoSettle,
@@ -1442,6 +1449,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   };
 
   const orderedThreadKeysRef = useRef(orderedThreadKeys);
+  const sectionByThreadKeyRef = useRef(sectionByThreadKey);
   // Read changing maps/sets through refs so streamed events preserve row callbacks.
   const threadByKeyRef = useRef(threadByKey);
   const settledThreadKeysRef = useRef(settledThreadKeys);
@@ -1607,15 +1615,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (readRouteThreadKey(router) !== threadKey) return null;
     const shell = threadByKeyRef.current.get(threadKey);
     const orderedKeys = orderedThreadKeysRef.current;
-    const settledKeys = settledThreadKeysRef.current;
-    const snoozedKeys = snoozedThreadKeysRef.current;
-    const currentIndex = orderedKeys.indexOf(threadKey);
-    const nextCardKey =
-      currentIndex === -1
-        ? null
-        : ([...orderedKeys.slice(currentIndex + 1), ...orderedKeys.slice(0, currentIndex)].find(
-            (key) => !settledKeys.has(key) && !snoozedKeys.has(key) && !coParkingKeys?.has(key),
-          ) ?? null);
+    const sections = sectionByThreadKeyRef.current;
+    const skipKeys = new Set(coParkingKeys);
+    for (const key of settledThreadKeysRef.current) skipKeys.add(key);
+    for (const key of snoozedThreadKeysRef.current) skipKeys.add(key);
+    const nextCardKey = threadKeyAfterPark({
+      pinnedKeys: orderedKeys.filter((key) => sections.get(key) === "pinned"),
+      activeKeys: orderedKeys.filter((key) => sections.get(key) === "active"),
+      orderedKeys,
+      parkedKey: threadKey,
+      skipKeys,
+    });
     const nextThread = nextCardKey ? threadByKeyRef.current.get(nextCardKey) : null;
     return nextThread
       ? () => navigateToThread(scopeThreadRef(nextThread.environmentId, nextThread.id))
@@ -1808,7 +1818,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     onDrop: dropThreadContextDrag,
   };
   const dndSensors = useSensors(useSensor(SidebarPointerSensor, pointerSensorOptions));
-  const sectionByThreadKeyRef = useRef(sectionByThreadKey);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes committed list data to refs read by stable drag and sweep callbacks
   useLayoutEffect(() => {
     projectGroupsRef.current = projectGroups;
@@ -1884,6 +1893,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   ) {
     setOptimisticDrop(null);
   }
+  const attemptPrioritize = (threadRef: ScopedThreadRef) => {
+    void prioritizeThread(threadRef).then((result) => {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to prioritize thread",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+    });
+  };
   const attemptPin = (threadRef: ScopedThreadRef) => {
     void (async () => {
       const result = await pinThread(threadRef);
@@ -2296,6 +2319,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     },
   );
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- routes header snoozes through the sidebar's navigation snapshot, just like sidebar actions
+  useEffect(() => registerSnoozeAndAdvance(attemptSnooze), [attemptSnooze]);
+
   const handleMultiSelectContextMenu = useStableCallback(
     async (position: { x: number; y: number }) => {
       const api = readLocalApi();
@@ -2668,6 +2694,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 autoSettleOptOut: supportsAutoSettleOptOut,
                 snooze: configLoaded,
                 pinning: configLoaded,
+                activeReorder: configLoaded,
                 titleRegeneration: configLoaded,
               },
               snoozePresets,
@@ -2739,6 +2766,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           case "pin":
             attemptPin(threadRef);
+            return;
+          case "prioritize":
+            attemptPrioritize(threadRef);
             return;
           case "unpin":
             attemptUnpin(threadRef);

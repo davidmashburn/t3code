@@ -2,7 +2,12 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { registerSettleAndAdvance, settleAndAdvance } from "./settleAndAdvance";
+import {
+  registerSettleAndAdvance,
+  registerSnoozeAndAdvance,
+  settleAndAdvance,
+  snoozeAndAdvance,
+} from "./settleAndAdvance";
 
 const threadRef = scopeThreadRef(
   EnvironmentId.make("environment-local"),
@@ -20,5 +25,19 @@ describe("settleAndAdvance", () => {
     expect(settledBy).toEqual(["new"]);
     unregisterNew();
     expect(settleAndAdvance(threadRef)).toBe(false);
+  });
+});
+
+describe("snoozeAndAdvance", () => {
+  it("keeps a remounted Sidebar's handler and falls back after unmount", () => {
+    const snoozedBy: string[] = [];
+    const preset = { snoozedUntil: "2099-01-01T00:00:00Z" };
+    const unregisterOld = registerSnoozeAndAdvance(() => snoozedBy.push("old"));
+    const unregisterNew = registerSnoozeAndAdvance(() => snoozedBy.push("new"));
+    unregisterOld();
+    expect(snoozeAndAdvance(threadRef, preset)).toBe(true);
+    expect(snoozedBy).toEqual(["new"]);
+    unregisterNew();
+    expect(snoozeAndAdvance(threadRef, preset)).toBe(false);
   });
 });

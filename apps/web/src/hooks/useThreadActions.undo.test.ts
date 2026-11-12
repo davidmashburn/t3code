@@ -7,6 +7,9 @@ import { threadEnvironment } from "../state/threads";
 import { toastManager } from "../components/ui/toast";
 import { useThreadUndoNotice } from "./showThreadUndoNotice";
 import { announce } from "../lib/announce";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import * as ThreadUndo from "@t3tools/client-runtime/state/thread-undo";
 
 const commands = vi.hoisted(() => ({
   pin: vi.fn(),
@@ -18,6 +21,11 @@ const commands = vi.hoisted(() => ({
   unsettle: vi.fn(),
   snooze: vi.fn(),
   unsnooze: vi.fn(),
+  reorderActive: vi.fn(),
+}));
+const permissions = vi.hoisted(() => ({
+  allowed: new Set(["undo-env", "other-env"]),
+  configLoaded: true,
 }));
 const router = vi.hoisted(() => {
   const listeners = new Set<(event: { action: { type: string } }) => void>();
@@ -36,7 +44,7 @@ const router = vi.hoisted(() => {
 vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => vi.fn() }));
 vi.mock("../state/session", async (original) => ({
   ...(await original<typeof import("../state/session")>()),
-  readEnvironmentScope: () => true,
+  readEnvironmentScope: (environmentId: string) => permissions.allowed.has(environmentId),
 }));
 vi.mock("react", async (original) => ({
   ...(await original<typeof import("react")>()),
@@ -61,6 +69,7 @@ const threadShell = vi.hoisted(() => ({
   title: "Thread",
   pinOrderKey: "a0",
   pinnedAt: null as string | null,
+  settledOverride: null as EnvironmentThreadShell["settledOverride"],
   snoozedUntil: null as string | null,
   projectId: "project",
   environmentId: "undo-env",
@@ -70,8 +79,13 @@ const threadShell = vi.hoisted(() => ({
 const shellLoaded = vi.hoisted(() => ({ current: true }));
 vi.mock("../state/entities", async (original) => ({
   ...(await original<typeof import("../state/entities")>()),
-  readEnvironmentServerConfigLoaded: () => true,
+  readEnvironmentServerConfigLoaded: () => permissions.configLoaded,
   readThreadShell: () => (shellLoaded.current ? threadShell : null),
+  readThreadShells: () => [
+    threadShell,
+    { environmentId: "another-env", id: "thread", activeOrderKey: "z" },
+    { environmentId: "undo-env", id: "hidden", activeOrderKey: "t" },
+  ],
 }));
 vi.mock("../state/use-atom-command", () => ({
   useAtomCommand: (command: unknown) => {
@@ -94,6 +108,8 @@ vi.mock("../state/use-atom-command", () => ({
         return commands.snooze;
       case threadEnvironment.unsnooze:
         return commands.unsnooze;
+      case threadEnvironment.reorderActive:
+        return commands.reorderActive;
       default:
         return vi.fn();
     }
@@ -119,8 +135,11 @@ beforeEach(() => {
   router.state.location.href = "/";
   router.state.matches[0]!.params = {};
   threadShell.pinnedAt = null;
+  threadShell.settledOverride = null;
   threadShell.snoozedUntil = null;
   shellLoaded.current = true;
+  permissions.allowed = new Set(["undo-env", "other-env"]);
+  permissions.configLoaded = true;
 });
 afterEach(() => {
   vi.runAllTimers();
@@ -149,6 +168,94 @@ describe("concurrent thread action Undo", () => {
       expect(commands[inverse]).toHaveBeenCalledOnce();
     },
   );
+});
+
+describe("prioritize", () => {
+  it.each([
+    { pinnedAt: null, settledOverride: null, snoozedUntil: null, expected: [] },
+    {
+      pinnedAt: "2026-01-01T00:00:00Z",
+      settledOverride: null,
+      snoozedUntil: null,
+      expected: ["unpin"],
+    },
+    { pinnedAt: null, settledOverride: "settled", snoozedUntil: null, expected: ["unsettle"] },
+    {
+      pinnedAt: null,
+      settledOverride: null,
+      snoozedUntil: "2099-01-01T00:00:00Z",
+      expected: ["unsnooze"],
+    },
+  ] as const)("reopens and orders a thread from $expected", async (input) => {
+    Object.assign(threadShell, {
+      pinnedAt: input.pinnedAt,
+      settledOverride: input.settledOverride,
+      snoozedUntil: input.snoozedUntil,
+    });
+    const claims = ["settle", "snooze", "pin"].map((kind) =>
+      ThreadUndo.begin(kind, scopedThreadKey(target)),
+    );
+    const result = await useThreadActions().prioritizeThread(target);
+    expect(result._tag).toBe("Success");
+    const used = ["unpin", "unsettle", "unsnooze"].filter(
+      (action) => commands[action as "unpin" | "unsettle" | "unsnooze"].mock.calls.length > 0,
+    );
+    expect(used).toEqual(input.expected);
+    for (const action of input.expected) {
+      expect(commands[action]).toHaveBeenCalledWith({
+        environmentId: target.environmentId,
+        input: {
+          threadId: target.threadId,
+          ...(action === "unpin" ? {} : { reason: "user" }),
+        },
+      });
+    }
+    expect(commands.reorderActive).toHaveBeenCalledOnce();
+    const request = commands.reorderActive.mock.calls[0]![0];
+    expect(request.environmentId).toBe(target.environmentId);
+    expect(request.input.threadId).toBe(target.threadId);
+    expect(request.input.orderKey > "z").toBe(true);
+    expect(router.navigate).toHaveBeenCalledExactlyOnceWith({
+      to: "/$environmentId/$threadId",
+      params: { environmentId: target.environmentId, threadId: target.threadId },
+    });
+    expect(claims.every((claim) => !claim.isCurrent())).toBe(true);
+  });
+
+  it.each(["unsettle", "unpin", "unsnooze", "reorderActive"] as const)(
+    "stops after a failed %s and does not navigate",
+    async (failed) => {
+      threadShell.settledOverride = "settled";
+      threadShell.pinnedAt = "2026-01-01T00:00:00Z";
+      threadShell.snoozedUntil = "2099-01-01T00:00:00Z";
+      const failure = { _tag: "Failure", cause: Cause.fail(new Error("rejected")) };
+      commands[failed].mockResolvedValue(failure);
+      const result = await useThreadActions().prioritizeThread(target);
+      expect(result).toBe(failure);
+      const steps = ["unsettle", "unpin", "unsnooze", "reorderActive"] as const;
+      for (const action of steps.slice(steps.indexOf(failed) + 1)) {
+        expect(commands[action]).not.toHaveBeenCalled();
+      }
+      expect(router.navigate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("requires the target environment's grant before changing state or Undo", async () => {
+    permissions.allowed = new Set(["another-env"]);
+    const claim = ThreadUndo.begin("settle", scopedThreadKey(target));
+    expect((await useThreadActions().prioritizeThread(target))._tag).toBe("Failure");
+    for (const command of Object.values(commands)) expect(command).not.toHaveBeenCalled();
+    expect(claim.isCurrent()).toBe(true);
+    claim.finish();
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it("requires the destination's server config before reopening", async () => {
+    permissions.configLoaded = false;
+    threadShell.settledOverride = "settled";
+    expect((await useThreadActions().prioritizeThread(target))._tag).toBe("Failure");
+    for (const command of Object.values(commands)) expect(command).not.toHaveBeenCalled();
+  });
 });
 
 describe("pin", () => {

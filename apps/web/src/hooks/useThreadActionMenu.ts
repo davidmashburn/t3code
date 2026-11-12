@@ -28,6 +28,7 @@ import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
 import { threadEnvironment } from "../state/threads";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { readEnvironmentScope } from "../state/session";
+import { settleAndAdvance, snoozeAndAdvance } from "../settleAndAdvance";
 import {
   readEnvironmentServerConfigLoaded,
   readEnvironmentSupportsAutoSettleOptOut,
@@ -82,6 +83,7 @@ export function useThreadActionMenu(input: {
     snoozeThread,
     unsnoozeThread,
     pinThread,
+    prioritizeThread,
     confirmAndUnpinThread,
     setThreadAutoSettle,
     archiveThread,
@@ -133,6 +135,7 @@ export function useThreadActionMenu(input: {
         autoSettleOptOut: readEnvironmentSupportsAutoSettleOptOut(threadRef.environmentId),
         snooze: configLoaded,
         pinning: configLoaded,
+        activeReorder: configLoaded,
         titleRegeneration: configLoaded,
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
@@ -178,6 +181,7 @@ export function useThreadActionMenu(input: {
                 threadRef.environmentId,
               );
         if (!preset) return;
+        if (snoozeAndAdvance(threadRef, preset)) return;
         const result = await snoozeThread(threadRef, preset.snoozedUntil);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           failureToast("Failed to snooze thread", squashAtomCommandFailure(result));
@@ -227,6 +231,7 @@ export function useThreadActionMenu(input: {
           return;
         }
         case "settle":
+          if (settleAndAdvance(threadRef)) return;
           await reportFailure("Failed to settle thread", () => settleThread(threadRef));
           return;
         case "unsettle":
@@ -237,6 +242,9 @@ export function useThreadActionMenu(input: {
           return;
         case "pin":
           await reportFailure("Failed to pin thread", () => pinThread(threadRef));
+          return;
+        case "prioritize":
+          await reportFailure("Failed to prioritize thread", () => prioritizeThread(threadRef));
           return;
         case "unpin": {
           await reportFailure("Failed to unpin thread", () => confirmAndUnpinThread(threadRef));

@@ -18,6 +18,7 @@ const baseState: ThreadActionMenuState = {
     autoSettleOptOut: true,
     snooze: true,
     pinning: true,
+    activeReorder: true,
     titleRegeneration: true,
   },
   snoozePresets: [
@@ -26,6 +27,20 @@ const baseState: ThreadActionMenuState = {
 };
 
 describe("buildThreadActionMenuItems", () => {
+  it("offers Prioritize only when active ordering is available", () => {
+    const items = buildThreadActionMenuItems(baseState);
+    expect(items.find((item) => item.id === "prioritize")).toMatchObject({
+      label: "Prioritize now",
+      icon: "arrow-down",
+    });
+    expect(
+      buildThreadActionMenuItems({
+        ...baseState,
+        supports: { ...baseState.supports, activeReorder: false },
+      }).some((item) => item.id === "prioritize"),
+    ).toBe(false);
+  });
+
   it.each([false, true])(
     "disables both lifecycle directions without permission (reversed: %s)",
     (reversed) => {
@@ -38,6 +53,7 @@ describe("buildThreadActionMenuItems", () => {
       });
       const expected = reversed
         ? [
+            "prioritize",
             "unpin",
             "unsettle",
             "unsnooze",
@@ -48,6 +64,7 @@ describe("buildThreadActionMenuItems", () => {
             "delete",
           ]
         : [
+            "prioritize",
             "pin",
             "settle",
             "snooze",

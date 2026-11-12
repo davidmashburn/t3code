@@ -28,6 +28,7 @@ import {
   sortScopedProjectsForSidebar,
   sortSidebarV2ProjectGroups,
   shouldNavigateAfterThreadPark,
+  threadKeyAfterPark,
   type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
@@ -904,6 +905,80 @@ describe("resolveSidebarSweepKeys", () => {
 });
 
 describe("navigation after parking a thread", () => {
+  it("opens the bottom active thread", () => {
+    const pinnedKeys = ["older-pin", "next-pin"];
+    const activeKeys = ["newest", "middle", "bottom"];
+    const orderedKeys = [...pinnedKeys, ...activeKeys, "working"];
+    const skipKeys = new Set<string>();
+    const park = (parkedKey: string, skip = skipKeys) =>
+      threadKeyAfterPark({ pinnedKeys, activeKeys, orderedKeys, parkedKey, skipKeys: skip });
+
+    expect(park("newest")).toBe("bottom");
+    expect(park("middle")).toBe("bottom");
+    expect(park("bottom")).toBe("middle");
+    expect(park("newest", new Set(["bottom"]))).toBe("middle");
+    expect(park("older-pin")).toBe("bottom");
+    expect(park("next-pin")).toBe("bottom");
+    expect(park("working")).toBe("bottom");
+  });
+
+  it("skips pins once the active list is empty", () => {
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: ["older-pin", "next-pin"],
+        activeKeys: ["only"],
+        orderedKeys: ["older-pin", "next-pin", "only"],
+        parkedKey: "only",
+        skipKeys: new Set(),
+      }),
+    ).toBeNull();
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: ["only-pin"],
+        activeKeys: ["bottom"],
+        orderedKeys: ["only-pin", "bottom"],
+        parkedKey: "only-pin",
+        skipKeys: new Set(),
+      }),
+    ).toBe("bottom");
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: ["pin"],
+        activeKeys: [],
+        orderedKeys: ["pin", "working"],
+        parkedKey: "pin",
+        skipKeys: new Set(),
+      }),
+    ).toBe("working");
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: ["pinned-row"],
+        activeKeys: ["only"],
+        orderedKeys: ["pinned-row", "only"],
+        parkedKey: "only",
+        skipKeys: new Set(),
+      }),
+    ).toBeNull();
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: [],
+        activeKeys: [],
+        orderedKeys: ["settled"],
+        parkedKey: "settled",
+        skipKeys: new Set(["settled"]),
+      }),
+    ).toBeNull();
+    expect(
+      threadKeyAfterPark({
+        pinnedKeys: [],
+        activeKeys: [],
+        orderedKeys: ["pinned"],
+        parkedKey: "missing",
+        skipKeys: new Set(),
+      }),
+    ).toBeNull();
+  });
+
   it.each([
     ["settle", "settled", null, "thread", true],
     ["settle", "active", null, "thread", false],

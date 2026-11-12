@@ -7,6 +7,7 @@ export type ThreadActionMenuId =
   | "filter-by-project"
   | "turn-into-project"
   | "project-settings"
+  | "prioritize"
   | "pin"
   | "unpin"
   | "settle"
@@ -88,6 +89,7 @@ export interface ThreadActionMenuState {
     readonly autoSettleOptOut: boolean;
     readonly snooze: boolean;
     readonly pinning: boolean;
+    readonly activeReorder: boolean;
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
@@ -128,6 +130,9 @@ export function buildThreadActionMenuItems(
             icon: "message-square-plus",
           },
         ]
+      : []),
+    ...(state.supports.activeReorder
+      ? [{ id: "prioritize" as const, label: "Prioritize now", icon: "arrow-down" }]
       : []),
     ...(state.supports.pinning
       ? [

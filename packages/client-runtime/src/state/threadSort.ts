@@ -210,6 +210,16 @@ export function pinOrderKeyBetween(before: string | null, after: string | null):
   return pinOrderMidpoint(a, b);
 }
 
+/** Keyed active threads sit below keyless ones, so this reserves the bottom row. */
+export function orderKeyAfterAll(keys: readonly (string | null | undefined)[]): string | null {
+  let max: string | null = null;
+  for (const key of keys) {
+    if (key == null || !isValidPinOrderKey(key)) continue;
+    if (max === null || key > max) max = key;
+  }
+  return pinOrderKeyBetween(max, null);
+}
+
 export function generateSpreadPinOrderKeys(count: number): string[] {
   let width = 2;
   let space = PIN_ORDER_DIGITS.length ** width;
@@ -300,6 +310,18 @@ export function sortPinnedThreadsByOrderKey<
   return [...keyed, ...keyless];
 }
 
+/** Preserve the view's timestamp order for threads without a manual position. */
+export function compareActiveThreadOrderKeys(
+  left: { readonly activeOrderKey?: string | null | undefined },
+  right: { readonly activeOrderKey?: string | null | undefined },
+): number {
+  const a = left.activeOrderKey;
+  const b = right.activeOrderKey;
+  if (a == null) return b == null ? 0 : -1;
+  if (b == null) return 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 export function sortActiveThreadsByOrderKey<
   T extends {
     readonly id: string;
@@ -319,14 +341,9 @@ export function sortActiveThreadsByOrderKey<
   return [...threads].sort((left, right) => {
     const leftKey = left.activeOrderKey;
     const rightKey = right.activeOrderKey;
-    if (leftKey == null && rightKey != null) return -1;
-    if (leftKey != null && rightKey == null) return 1;
-    let order = 0;
-    if (leftKey != null && rightKey != null) {
-      order = leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
-    } else {
-      order = timestamps.get(right)! - timestamps.get(left)!;
-    }
+    const order =
+      compareActiveThreadOrderKeys(left, right) ||
+      (leftKey == null && rightKey == null ? timestamps.get(right)! - timestamps.get(left)! : 0);
     return (
       order ||
       left.id.localeCompare(right.id) ||

@@ -5,7 +5,12 @@ import {
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
+import {
+  canSnooze,
+  effectiveSnoozed,
+  threadWokeAt,
+} from "@t3tools/client-runtime/state/thread-settled";
+import { orderKeyAfterAll } from "@t3tools/client-runtime/state/thread-sort";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import {
   AuthOrchestrationOperateScope,
@@ -874,6 +879,69 @@ export function useThreadActions() {
     });
   };
 
+  const prioritizeThread = async (target: ScopedThreadRef) => {
+    const permissionFailure = threadOperationFailure(target);
+    if (permissionFailure) return permissionFailure;
+    if (!readEnvironmentServerConfigLoaded(target.environmentId)) {
+      return AsyncResult.failure(
+        Cause.fail(
+          new ThreadActiveReorderUnsupportedError({
+            environmentId: target.environmentId,
+            threadId: target.threadId,
+          }),
+        ),
+      );
+    }
+    const resolved = resolveThreadTarget(target);
+    if (!resolved) return AsyncResult.success(undefined);
+    const { thread } = resolved;
+    expireThreadUndos(target, LIST_PLACEMENT_UNDO_KINDS);
+    if (thread.settledOverride === "settled") {
+      const unsettled = await unsettleThreadMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, reason: "user" },
+      });
+      if (unsettled._tag !== "Success") return unsettled;
+    }
+    if (thread.pinnedAt != null) {
+      const unpinned = await unpinThreadMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId },
+      });
+      if (unpinned._tag !== "Success") return unpinned;
+    }
+    if (effectiveSnoozed(thread, { now: new Date().toISOString() })) {
+      const woke = await unsnoozeThreadMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, reason: "user" },
+      });
+      if (woke._tag !== "Success") return woke;
+    }
+    // Reserve across environments because the active list can combine their threads.
+    const orderKey = orderKeyAfterAll(readThreadShells().map((shell) => shell.activeOrderKey));
+    if (orderKey === null) {
+      return AsyncResult.failure(
+        Cause.fail(
+          new ThreadActiveReorderUnsupportedError({
+            environmentId: target.environmentId,
+            threadId: target.threadId,
+          }),
+        ),
+      );
+    }
+    const reordered = await reorderActiveThreadMutation({
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId, orderKey },
+    });
+    if (reordered._tag !== "Success") return reordered;
+    return settlePromise(() =>
+      router.navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(target),
+      }),
+    );
+  };
+
   const reorderActiveThread = async (target: ScopedThreadRef, orderKey: string) => {
     if (!readEnvironmentServerConfigLoaded(target.environmentId)) {
       return AsyncResult.failure(
@@ -1013,6 +1081,7 @@ export function useThreadActions() {
     confirmAndUnpinThread,
     reorderPinnedThread,
     reorderActiveThread,
+    prioritizeThread,
     markThreadUnread,
     setThreadAutoSettle,
     turnThreadIntoProject: (target: ScopedThreadRef) =>

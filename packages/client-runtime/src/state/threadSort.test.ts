@@ -2,7 +2,9 @@ import { RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  compareActiveThreadOrderKeys,
   generateSpreadPinOrderKeys,
+  orderKeyAfterAll,
   pinOrderKeyBetween,
   planPinnedReorder,
   resolveSettledThreadTimestamp,
@@ -231,6 +233,40 @@ describe("generateSpreadPinOrderKeys", () => {
       }
     },
   );
+});
+
+describe("orderKeyAfterAll", () => {
+  it("sorts the new key below every keyless and keyed active thread", () => {
+    const key = orderKeyAfterAll([null, "b", "m", "!!!"]);
+    expect(key).not.toBeNull();
+    expect(key! > "m").toBe(true);
+    expect(
+      sortActiveThreadsByOrderKey([
+        { id: "old", createdAt: "2026-01-01T00:00:00.000Z", activeOrderKey: null },
+        { id: "keyed", createdAt: "2026-01-02T00:00:00.000Z", activeOrderKey: "m" },
+        { id: "now", createdAt: "2026-06-01T00:00:00.000Z", activeOrderKey: key },
+      ]).map((thread) => thread.id),
+    ).toEqual(["old", "keyed", "now"]);
+  });
+});
+
+describe("compareActiveThreadOrderKeys", () => {
+  it("keeps the Inbox or folder's timestamp order while moving manual positions below it", () => {
+    const rows = [
+      { id: "bottom", activeOrderKey: "z" },
+      { id: "recent-return", activeOrderKey: null },
+      { id: "recent-send" },
+      { id: "older-return", activeOrderKey: undefined },
+      { id: "earlier-position", activeOrderKey: "b" },
+    ];
+    expect(rows.toSorted(compareActiveThreadOrderKeys).map((thread) => thread.id)).toEqual([
+      "recent-return",
+      "recent-send",
+      "older-return",
+      "earlier-position",
+      "bottom",
+    ]);
+  });
 });
 
 describe("sortActiveThreadsByOrderKey", () => {
