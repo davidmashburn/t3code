@@ -457,6 +457,18 @@ const LenientThreadOpens = Schema.NullOr(OrchestrationV2ThreadOpens).pipe(
   Schema.catchDecoding(() => Effect.succeedSome(null)),
 );
 
+export const ExternalSessionControlMode = Schema.Enum({ Mirrored: "mirrored", Owned: "owned" });
+export type ExternalSessionControlMode = typeof ExternalSessionControlMode.Type;
+
+export const OrchestrationV2ExternalSession = Schema.Struct({
+  sessionId: TrimmedNonEmptyString,
+  controlMode: ExternalSessionControlMode,
+  running: Schema.Boolean,
+  /** Last T3-owned transcript boundary, including V1 turns without V2 run records. */
+  ownedThrough: Schema.optional(IsoDateTime),
+});
+export type OrchestrationV2ExternalSession = typeof OrchestrationV2ExternalSession.Type;
+
 const OrchestrationV2LastTitleRegeneration = Schema.Struct({
   ...ThreadTitleRegenerationOutcome.fields,
   requestId: CommandId,
@@ -464,6 +476,7 @@ const OrchestrationV2LastTitleRegeneration = Schema.Struct({
 });
 
 export const OrchestrationV2AppThread = Schema.Struct({
+  externalSession: Schema.optional(OrchestrationV2ExternalSession),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
@@ -2141,6 +2154,7 @@ export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
 export const OrchestrationV2ThreadShell = Schema.Struct({
+  externalSession: Schema.optional(OrchestrationV2ExternalSession),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
@@ -3023,7 +3037,14 @@ export const OrchestrationV2Command = Schema.Union([
     stopDelegatedTasks: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
+    type: Schema.Literal("thread.external.control"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    controlMode: ExternalSessionControlMode,
+  }),
+  Schema.Struct({
     type: Schema.Literal("thread.create"),
+    externalSession: Schema.optional(OrchestrationV2ExternalSession),
     ...OrchestrationV2CreationFields,
     commandId: CommandId,
     threadId: ThreadId,
@@ -3530,6 +3551,16 @@ const OrchestrationV2InternalCommand = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     projectId: ProjectId,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.external.observe"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    externalSession: OrchestrationV2ExternalSession,
+    providerThread: OrchestrationV2ProviderThread,
+    messages: Schema.Array(OrchestrationV2ConversationMessage),
+    turnItems: Schema.Array(OrchestrationV2TurnItem),
+    title: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request-watch.sync"),

@@ -48,6 +48,18 @@ Claude Code's verbose mode can stay enabled when you use Claude for text generat
 thread titles, branch names, commit messages, and pull request descriptions. On a remote connection,
 T3 Code uses the Claude configuration on the connected server.
 
+## Mirror external sessions
+
+Enable **Mirror external sessions** for a Claude instance in **Settings > Providers**
+to follow Claude Code sessions started outside T3 Code. Sessions appear in a T3 Code
+project with the same working directory on that environment. Subagent sessions and
+sessions T3 Code already owns are excluded.
+
+Mirrored threads are read-only. When the external session finishes its turn, use
+**Take over** in the web or desktop app to continue it in T3 Code. Use **Release
+control** before continuing in Claude Code. Keep only one app in control at a time;
+T3 Code cannot stop an external Claude process from resuming.
+
 ## Compact long conversations
 
 Set **Auto-compact after** in the Claude provider settings to an integer between

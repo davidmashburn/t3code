@@ -19,6 +19,7 @@ import { isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
 import {
   AuthOrchestrationOperateScope,
   DEFAULT_MODEL,
+  ExternalSessionControlMode,
   type EnvironmentId,
   type ModelSelection,
   type PreviewAnnotationPayload,
@@ -383,6 +384,9 @@ export function useComposerSend(input: ComposerSendInput) {
     },
   ) => {
     e?.preventDefault();
+    if (activeThread?.externalSession?.controlMode === ExternalSessionControlMode.enums.Mirrored) {
+      return;
+    }
     // What the user pressed send on; uploads below can take a while, and a redirect must not
     // decline approvals for a draft that changed meanwhile.
     const promptAtSend = promptRef.current;

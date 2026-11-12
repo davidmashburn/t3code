@@ -57,6 +57,7 @@ import { useChatShortcuts } from "./chat/useChatShortcuts";
 import { ChatBannerLane } from "./chat/ChatBannerLane";
 import * as Schema from "effect/Schema";
 import {
+  ExternalSessionControlMode,
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
   AuthPreviewOperateScope,
@@ -69,6 +70,7 @@ import {
   type MessageId,
   type ModelSelection,
   type PreviewAnnotationPayload,
+  CommandId,
   ProviderInstanceId,
   type ServerProvider,
   type ScopedThreadRef,
@@ -194,7 +196,9 @@ import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { shortcutLabelForCommand } from "../keybindings";
-import { cn } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
+import { InfoIcon } from "lucide-react";
+import { Button } from "./ui/button";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { toastManager } from "./ui/toast";
@@ -448,6 +452,11 @@ export default function ChatView(props: ChatViewProps) {
       currentRouteThreadKeyRef.current = null;
     };
   }, [routeThreadKey]);
+  const setExternalControl = useOrchestrationCommand(threadEnvironment.setExternalControl);
+  const canSetExternalControl = useAtomValue(
+    threadEnvironment.setExternalControl.permissionAtom(environmentId),
+  );
+  const [changingExternalControl, setChangingExternalControl] = useState(false);
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -1008,6 +1017,12 @@ export default function ChatView(props: ChatViewProps) {
   );
   const browserAvailable = isPreviewSupportedInRuntime() || activeEnvironmentServerBrowser;
   const activeThreadShell = serverThread;
+  const externalSession = activeThreadShell?.externalSession;
+  const isExternalReadOnly =
+    externalSession?.controlMode === ExternalSessionControlMode.enums.Mirrored;
+  const externalReadOnlyReason = isExternalReadOnly
+    ? "Mirroring an external Claude session. Take over to send messages."
+    : null;
   const limitRecoveryRun =
     serverRuntime?.status === "failed" && serverRuntime.lastErrorClass === "usage_limit"
       ? (activeThreadShell?.latestRun ?? null)
@@ -2474,6 +2489,7 @@ export default function ChatView(props: ChatViewProps) {
     providerStatuses,
   );
   const compactThreadUnavailable =
+    isExternalReadOnly ||
     !canOperateThread ||
     !activeThread ||
     !activeThreadHasCompactableConversation ||
@@ -2574,6 +2590,56 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const externalSessionBanner = ((): ComposerBannerStackItem | null => {
+    if (!externalSession || !activeThreadShell) return null;
+    const blocked = isExternalReadOnly
+      ? externalSession.running
+      : isWorking || activeThreadShell.runtime?.status === "queued" || hasHeldQueuedRuns;
+    return {
+      id: "external-claude-session",
+      variant: "info",
+      icon: <InfoIcon />,
+      title: isExternalReadOnly
+        ? "Mirroring external Claude session"
+        : "T3 controls this Claude session",
+      description: isExternalReadOnly
+        ? externalSession.running
+          ? "Wait for the external turn to finish before taking over."
+          : "Take over here after stopping work in the external client."
+        : "Release control to resume mirroring the external client.",
+      actions: (
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={!canSetExternalControl || changingExternalControl || blocked}
+          onClick={async () => {
+            setChangingExternalControl(true);
+            try {
+              await setExternalControl({
+                environmentId,
+                input: {
+                  type: "thread.external.control",
+                  commandId: CommandId.make(randomUUID()),
+                  threadId: activeThreadShell.id,
+                  controlMode: isExternalReadOnly
+                    ? ExternalSessionControlMode.enums.Owned
+                    : ExternalSessionControlMode.enums.Mirrored,
+                },
+              });
+            } finally {
+              setChangingExternalControl(false);
+            }
+          }}
+        >
+          {changingExternalControl
+            ? "Updating…"
+            : isExternalReadOnly
+              ? "Take over"
+              : "Release control"}
+        </Button>
+      ),
+    };
+  })();
   const composerBannerItems = (() => {
     const fallbackSelection = draftFallback?.selection;
     const defaultSelection =
@@ -2620,6 +2686,7 @@ export default function ChatView(props: ChatViewProps) {
             }),
           ]
         : [];
+    const externalSessionItems = externalSessionBanner ? [externalSessionBanner] : [];
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
     const extensionStatusBanner = extensionStatusBannerItem(
       deriveProviderExtensionStatuses(serverProjection),
@@ -2634,6 +2701,7 @@ export default function ChatView(props: ChatViewProps) {
         : [];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
+        ...externalSessionItems,
         ...feedbackBannerItems,
         ...fallbackItems,
         ...limitRecoveryItems,
@@ -2645,6 +2713,7 @@ export default function ChatView(props: ChatViewProps) {
       ];
     }
     return [
+      ...externalSessionItems,
       ...feedbackBannerItems,
       ...fallbackItems,
       ...limitRecoveryItems,
@@ -2788,6 +2857,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThread?.lineage.relationshipToParent === "subagent" || delegatedFrom !== null;
   // Side chats do not nest or start from subagents, and older servers would fork a listed thread.
   const sideChatsOffered =
+    !isExternalReadOnly &&
     !embedded &&
     canOperateThread &&
     activeThread?.lineage.sideChat !== true &&
@@ -3408,7 +3478,7 @@ export default function ChatView(props: ChatViewProps) {
                   heldApprovalRequestIds={heldApprovalRequestIds}
                   respondingRequestIds={respondingRequestIds}
                   onRespondToApproval={onRespondToApprovalStable}
-                  canOperateThread={canOperateThread}
+                  canOperateThread={canOperateThread && !isExternalReadOnly}
                   threadDetailRef={routeThreadDetailRef}
                   entriesInput={timelineEntriesInput}
                   draftEntries={isServerThread ? null : draftTimelineEntries}
@@ -3594,7 +3664,7 @@ export default function ChatView(props: ChatViewProps) {
                             ) : null}
                             {!composerMounted ? null : (
                               <ChatComposer
-                                canOperateThread={canOperateThread}
+                                canOperateThread={canOperateThread && !isExternalReadOnly}
                                 reportedModelSelection={reportedModelSelection}
                                 multipleModelSelections={multipleModelSelections}
                                 supportsMultipleModels={
@@ -3635,7 +3705,8 @@ export default function ChatView(props: ChatViewProps) {
                                 canResume={canResume}
                                 isRevertingCheckpoint={isRevertingCheckpoint}
                                 sendDisabledReason={
-                                  !canOperateThread
+                                  externalReadOnlyReason ??
+                                  (!canOperateThread
                                     ? "This connection cannot change threads."
                                     : isEnvironmentChanging
                                       ? "Preparing machine"
@@ -3647,7 +3718,7 @@ export default function ChatView(props: ChatViewProps) {
                                             ? "Messages loading"
                                             : worktreeSetupBlocksSend
                                               ? "Preparing worktree"
-                                              : projectCloneSendBlockReason
+                                              : projectCloneSendBlockReason)
                                 }
                                 isPreparingWorktree={isPreparingWorktree && !sendQueuesBehindSetup}
                                 bannerItems={

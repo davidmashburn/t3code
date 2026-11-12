@@ -3,6 +3,7 @@ import {
   threadPullRequestsOf,
 } from "../../sourceControl/threadPullRequests.ts";
 import {
+  ExternalSessionControlMode,
   ChatAttachment,
   OrchestrationMessageContext,
   DEFAULT_MODEL,
@@ -33,6 +34,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as EventSink from "../EventSink.ts";
+import { claudeExternalProviderThread } from "../claudeMirrorTranscript.ts";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 
 const IMPORT_EVENT_PREFIX = "migration:v1";
@@ -440,6 +442,82 @@ const make = Effect.gen(function* () {
   });
 
   const reconcileShellsBase = Effect.gen(function* () {
+    // Fork V1 databases carry ownership columns which upstream-only databases never had.
+    const sessionColumns = yield* sql<{
+      name: string;
+    }>`PRAGMA table_info(projection_thread_sessions)`.pipe(NodeSqliteClient.readOnly);
+    const externalSessions = new Map<
+      string,
+      {
+        sessionId: string;
+        controlMode: ExternalSessionControlMode;
+        running: boolean;
+        headId?: string;
+      }
+    >();
+    if (
+      sessionColumns.some((column) => column.name === "origin") &&
+      sessionColumns.some((column) => column.name === "control_mode")
+    ) {
+      const rows = yield* sql<{
+        thread_id: string;
+        control_mode: string;
+        status: string;
+        resume_cursor_json: string | null;
+      }>`
+        SELECT session.thread_id, session.control_mode, session.status, runtime.resume_cursor_json
+        FROM projection_thread_sessions session
+        LEFT JOIN provider_session_runtime runtime ON runtime.thread_id = session.thread_id
+        WHERE session.origin = 'external'
+      `.pipe(NodeSqliteClient.readOnly);
+      const decodeCursor = Schema.decodeUnknownOption(
+        Schema.Struct({ resume: Schema.String, resumeSessionAt: Schema.optional(Schema.String) }),
+      );
+      for (const row of rows) {
+        const cursor = decodeCursor(
+          row.resume_cursor_json === null ? undefined : parseJson(row.resume_cursor_json),
+        );
+        if (Option.isNone(cursor)) continue;
+        externalSessions.set(row.thread_id, {
+          sessionId: cursor.value.resume,
+          controlMode:
+            row.control_mode === ExternalSessionControlMode.enums.Owned
+              ? ExternalSessionControlMode.enums.Owned
+              : ExternalSessionControlMode.enums.Mirrored,
+          // The initial filesystem scan refreshes a mirrored running turn. Owned V1
+          // processes do not survive cutover, so never permanently lock their release.
+          running:
+            row.control_mode !== ExternalSessionControlMode.enums.Owned && row.status === "running",
+          ...(cursor.value.resumeSessionAt ? { headId: cursor.value.resumeSessionAt } : {}),
+        });
+      }
+    }
+    const externalThread = (thread: OrchestrationV2AppThread) => {
+      const external = externalSessions.get(thread.id);
+      if (!external) return { thread, providerThread: undefined };
+      const providerThread = claudeExternalProviderThread({
+        instanceId: thread.providerInstanceId,
+        threadId: thread.id,
+        sessionId: external.sessionId,
+        now: thread.updatedAt,
+        ...(external.headId ? { headId: external.headId } : {}),
+      });
+      return {
+        thread: {
+          ...thread,
+          activeProviderThreadId: providerThread.id,
+          externalSession: {
+            sessionId: external.sessionId,
+            controlMode: external.controlMode,
+            running: external.running,
+            ...(external.controlMode === ExternalSessionControlMode.enums.Owned
+              ? { ownedThrough: DateTime.formatIso(thread.updatedAt) }
+              : {}),
+          },
+        },
+        providerThread,
+      };
+    };
     const now = yield* DateTime.now;
     const repairRows = yield* sql<LegacyRepairRow>`
       SELECT
@@ -582,10 +660,40 @@ const make = Effect.gen(function* () {
       )
       ORDER BY thread.created_at ASC, thread.thread_id ASC
     `.pipe(NodeSqliteClient.readOnly);
+    for (const threadId of externalSessions.keys()) {
+      const persisted = yield* sql<{
+        payload_json: string;
+      }>`SELECT payload_json FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId}`.pipe(
+        NodeSqliteClient.readOnly,
+      );
+      if (!persisted[0]) continue;
+      const decoded = decodeStoredThread(persisted[0].payload_json);
+      if (Option.isNone(decoded) || decoded.value.externalSession) continue;
+      const { thread, providerThread } = externalThread(decoded.value);
+      if (!providerThread) continue;
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make(`${IMPORT_EVENT_PREFIX}:thread:${threadId}:external-control`),
+            type: "thread.metadata-updated",
+            threadId: thread.id,
+            occurredAt: now,
+            payload: thread,
+          },
+          {
+            id: EventId.make(`${IMPORT_EVENT_PREFIX}:thread:${threadId}:external-provider`),
+            type: "provider-thread.updated",
+            threadId: thread.id,
+            occurredAt: now,
+            payload: providerThread,
+          },
+        ],
+      });
+    }
     let importedThreadCount = repairedThreadCount;
     let importedMessageCount = 0;
     for (const row of rows) {
-      const thread = importedThread(row, now);
+      const { thread, providerThread } = externalThread(importedThread(row, now));
       const previews = yield* listShellMessages(thread.id);
       const events: Array<OrchestrationV2DomainEvent> = [
         {
@@ -596,6 +704,20 @@ const make = Effect.gen(function* () {
           occurredAt: thread.createdAt,
           payload: thread,
         },
+        ...(providerThread
+          ? [
+              {
+                id: EventId.make(
+                  `${IMPORT_EVENT_PREFIX}:thread:${row.thread_id}:external-provider`,
+                ),
+                type: "provider-thread.updated" as const,
+                threadId: thread.id,
+                providerInstanceId: thread.providerInstanceId,
+                occurredAt: thread.updatedAt,
+                payload: providerThread,
+              },
+            ]
+          : []),
         ...previews.flatMap((message) => messageEvents(message, now)),
         {
           id: EventId.make(`${IMPORT_EVENT_PREFIX}:thread:${row.thread_id}:shell`),

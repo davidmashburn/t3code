@@ -88,6 +88,18 @@ export function clientRpcRequiredScopes(
   method: string,
   input: unknown,
 ): readonly AuthEnvironmentScope[] {
+  // Ownership uses this guard; existing dispatch commands retain their client permission path.
+  // Missing input is the UI availability probe.
+  if (
+    method === ORCHESTRATION_V2_WS_METHODS.dispatchCommand &&
+    (input === undefined ||
+      (typeof input === "object" &&
+        input !== null &&
+        "type" in input &&
+        input.type === "thread.external.control"))
+  ) {
+    return [AuthOrchestrationOperateScope];
+  }
   if (method === WS_METHODS.gitPreparePullRequestThread && input !== undefined) {
     const payload = decodePrepareThread(input);
     if (payload.mode === "worktree" && payload.threadId !== undefined)

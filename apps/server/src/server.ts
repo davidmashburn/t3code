@@ -1,3 +1,4 @@
+import * as ClaudeSessionMirror from "./orchestration-v2/ClaudeSessionMirror.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Random from "effect/Random";
@@ -650,6 +651,7 @@ const layerServerRestart = Layer.effect(
 );
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
+  ClaudeSessionMirror.layerWorker.pipe(Layer.provide(ProjectionStoreV2.layer)),
   AgentAwarenessRelay.layer,
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,

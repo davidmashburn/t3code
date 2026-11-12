@@ -1,5 +1,5 @@
 import type { ProjectThreadAwarenessV2Input } from "@t3tools/shared/agentAwareness";
-import { pendingGuestMessageCount } from "@t3tools/contracts";
+import { ExternalSessionControlMode, pendingGuestMessageCount } from "@t3tools/contracts";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
@@ -1704,6 +1704,9 @@ export function threadShellFromProjection(
     pullRequests: projection.thread.pullRequests,
   });
   return {
+    ...(projection.thread.externalSession === undefined
+      ? {}
+      : { externalSession: projection.thread.externalSession }),
     createdBy: projection.thread.createdBy,
     creationSource: projection.thread.creationSource,
     id: projection.thread.id,
@@ -1753,7 +1756,11 @@ export function threadShellFromProjection(
     activityRunStatus: activityRun?.status ?? null,
     activityRunStartedAt:
       activityRun === null ? null : orchestrationV2RunWorkStartedAt(activityRun),
-    status: latestRun?.status ?? "idle",
+    status:
+      projection.thread.externalSession?.controlMode ===
+        ExternalSessionControlMode.enums.Mirrored && projection.thread.externalSession.running
+        ? "running"
+        : (latestRun?.status ?? "idle"),
     ...threadErrorSummary(
       latestRootProviderFailure(latestRun, projection.turnItems),
       providerSession?.lastError ?? null,
@@ -2017,6 +2024,9 @@ function shellFromState(input: {
   readonly visibleItemCount: number;
 }): OrchestrationV2ThreadShell {
   return {
+    ...(input.state.thread.externalSession === undefined
+      ? {}
+      : { externalSession: input.state.thread.externalSession }),
     createdBy: input.state.thread.createdBy,
     creationSource: input.state.thread.creationSource,
     id: input.state.thread.id,
@@ -2060,7 +2070,11 @@ function shellFromState(input: {
     blockedOnThreadWait: input.state.blockedOnThreadWait,
     activityRunStatus: input.state.activityRunStatus,
     activityRunStartedAt: input.state.activityRunStartedAt,
-    status: input.state.latestRunStatus,
+    status:
+      input.state.thread.externalSession?.controlMode ===
+        ExternalSessionControlMode.enums.Mirrored && input.state.thread.externalSession.running
+        ? "running"
+        : input.state.latestRunStatus,
     lastError: input.state.lastError,
     lastErrorClass: input.state.lastErrorClass,
     lastErrorCode: input.state.lastErrorCode,

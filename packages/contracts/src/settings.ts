@@ -848,9 +848,24 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    mirrorExternalSessions: Schema.optional(Schema.Boolean).pipe(
+      Schema.annotateKey({
+        title: "Mirror external sessions",
+        description:
+          "Show Claude Code sessions for T3 projects as live, read-only threads. Disable before using a shared Claude home on an untrusted machine.",
+        providerSettingsForm: { control: "switch" },
+      }),
+    ),
   },
   {
-    order: ["binaryPath", "homePath", "autoCompactWindow", "idleCompaction", "launchArgs"],
+    order: [
+      "binaryPath",
+      "homePath",
+      "autoCompactWindow",
+      "idleCompaction",
+      "launchArgs",
+      "mirrorExternalSessions",
+    ],
   },
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;

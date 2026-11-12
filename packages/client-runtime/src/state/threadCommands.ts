@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import { AsyncResult, Atom, type AtomRegistry } from "effect/reactivity";
 import {
   WS_METHODS,
+  ORCHESTRATION_V2_WS_METHODS,
   type EnvironmentId,
   type OrchestrationV2ShellSnapshot,
 } from "@t3tools/contracts";
@@ -261,6 +262,11 @@ export function createThreadEnvironmentAtoms<R, E>(
       execute: markThreadUnread,
       scheduler,
       concurrency,
+    }),
+    setExternalControl: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:commands:thread:external-control",
+      tag: ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+      scheduler,
     }),
     updateMetadata: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:update-metadata",

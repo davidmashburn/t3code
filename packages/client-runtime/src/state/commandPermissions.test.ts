@@ -8,6 +8,8 @@ import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
   AuthAccessReadScope,
+  CommandId,
+  ExternalSessionControlMode,
   AuthAccessWriteScope,
   AuthEnvironmentMaintainScope,
   AuthOrchestrationOperateScope,
@@ -204,6 +206,32 @@ describe("command permissions", () => {
           yield* check.authorize(registry, env);
         }),
       ),
+  );
+
+  it.effect("requires thread-operation permission for external session ownership changes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const control = createCommandPermissions(
+          runtime,
+          ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+        );
+        const input = {
+          type: "thread.external.control" as const,
+          commandId: CommandId.make("external-control"),
+          threadId: ThreadId.make("external-thread"),
+          controlMode: ExternalSessionControlMode.enums.Owned,
+        };
+        registry.set(sessions(env), AsyncResult.success(grant(false)));
+        expect(registry.get(control.permissionAtom(env))).toBe(false);
+        expect((yield* control.authorize(registry, env, input).pipe(Effect.flip))._tag).toBe(
+          "EnvironmentAuthorizationError",
+        );
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(control.permissionAtom(env))).toBe(true);
+        yield* control.authorize(registry, env, input);
+      }),
+    ),
   );
 
   it.effect.each([WS_METHODS.scheduledTasksDelete, ORCHESTRATION_V2_WS_METHODS.stopWorkflow])(

@@ -47,6 +47,18 @@ describe("ProviderSettingsForm helpers", () => {
     ]);
   });
 
+  it("exposes external Claude session mirroring as an opt-in switch", () => {
+    const claude = providerClients.get(ProviderDriverKind.make("claudeAgent"));
+    expect(claude).toBeDefined();
+    const field = deriveProviderSettingsFields(claude!).find(
+      (field) => field.key === "mirrorExternalSessions",
+    );
+    expect(field?.control).toBe("switch");
+    expect(nextProviderConfigWithFieldValue({}, field!, true)).toEqual({
+      mirrorExternalSessions: true,
+    });
+  });
+
   it("preserves unknown config keys while omitting empty configurable fields", () => {
     const opencode = providerClients.get(ProviderDriverKind.make("opencode"));
     expect(opencode).toBeDefined();
