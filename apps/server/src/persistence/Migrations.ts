@@ -1,6 +1,7 @@
 import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
+import { planForkRelayMigration } from "./reconcileForkRelayMigration.ts";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
 
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -194,11 +195,13 @@ const FIRST_V2_MIGRATION_ID = 55;
 export function skippedV2Migrations(
   recorded: ReadonlyArray<{ readonly id: number; readonly name: string }>,
   throughId?: number,
+  repairedV2MigrationIds: ReadonlyArray<number> = [],
 ): string[] {
   const latestRecordedId = Math.max(0, ...recorded.map((row) => row.id));
   const recordedNames = new Map(recorded.map((row) => [row.id, row.name]));
   return migrationManifest.flatMap(([id, name]) => {
     if (
+      repairedV2MigrationIds.includes(id) ||
       id < FIRST_V2_MIGRATION_ID ||
       id > latestRecordedId ||
       (throughId !== undefined && id > throughId)
@@ -212,6 +215,7 @@ export function skippedV2Migrations(
 // Migrators skip ids up to the highest recorded; reject collisions that would skip V2 schema.
 const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function* (
   throughId?: number,
+  repairedV2MigrationIds: ReadonlyArray<number> = [],
 ) {
   const sql = yield* SqlClient.SqlClient;
   const tables = yield* sql`
@@ -225,6 +229,7 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
   const skipped = skippedV2Migrations(
     recorded.map((row) => ({ id: row.migration_id, name: row.name })),
     throughId,
+    repairedV2MigrationIds,
   );
   const latestRecordedId = Math.max(0, ...recorded.map((row) => row.migration_id));
   if (skipped.length === 0) return;
@@ -236,7 +241,7 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
 
 const latestMigrationId = Math.max(...migrationEntries.map(([id]) => id));
 
-// Mirrors the Migrator, which runs only ids above the highest recorded, plus the V2-preview reconciliation.
+// Include compatibility repairs so CLI callers take ownership before any schema writes.
 export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* () {
   const sql = yield* SqlClient.SqlClient;
   const tables = yield* sql`
@@ -250,7 +255,8 @@ export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* 
     FROM effect_sql_migrations
   `;
   const row = rows[0];
-  return (row?.latestId ?? 0) < latestMigrationId || (row?.previewRows ?? 0) > 0;
+  if ((row?.latestId ?? 0) < latestMigrationId || (row?.previewRows ?? 0) > 0) return true;
+  return (yield* planForkRelayMigration()).hasPending;
 });
 
 const run = Migrator.make({});
@@ -262,12 +268,16 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  const forkRelay = yield* planForkRelayMigration(toMigrationInclusive);
   const includesV2 =
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
   const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
   if (includesV2) {
-    yield* assertV2MigrationsCanRun(toMigrationInclusive);
+    yield* assertV2MigrationsCanRun(toMigrationInclusive, forkRelay.repairedV2MigrationIds);
   }
+  // Repair collided fork schema before the migrator. Recorded ids stay put; upstream still
+  // commits each later migration on its own so a long startup can resume.
+  yield* forkRelay.reconcile;
   const sql = yield* SqlClient.SqlClient;
   const ledger = yield* sql`
     SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
@@ -318,7 +328,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
   });
   if (divergent.length > 0) {
     yield* Effect.logWarning(
-      "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
+      "Database migration history differs from this build; recorded ids are preserved and known fork schema collisions are reconciled separately.",
     ).pipe(Effect.annotateLogs({ divergent }));
   }
   return executedMigrations;

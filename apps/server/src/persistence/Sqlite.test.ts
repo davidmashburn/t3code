@@ -314,4 +314,71 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("layerCliConfig",
       yield* Effect.void.pipe(Effect.provide(SqlitePersistence.layerCliConfig));
     }).pipe(Effect.scoped, Effect.provide(layerT3Home)),
   );
+
+  it.effect(
+    "does not reconcile fork schema behind a running server at the latest migration id",
+    () =>
+      Effect.gen(function* () {
+        yield* migrateTo();
+        const { dbPath } = yield* ServerConfig.ServerConfig;
+        yield* Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`UPDATE effect_sql_migrations SET name = 'ProjectionThreadSessionExternalControl'
+          WHERE migration_id = 53`;
+          yield* sql`DROP TABLE pull_request_files_viewed`;
+        }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: dbPath })));
+        yield* ownT3Home();
+
+        const opened = yield* Effect.void.pipe(
+          Effect.provide(SqlitePersistence.layerCliConfig),
+          Effect.result,
+        );
+        assert.equal(opened._tag, "Failure");
+        if (opened._tag === "Failure") {
+          assert.instanceOf(opened.failure, SqlitePersistence.ServerOwnsDatabaseError);
+        }
+        yield* Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          assert.deepStrictEqual(
+            yield* sql`SELECT name FROM sqlite_master WHERE name = 'pull_request_files_viewed'`,
+            [],
+          );
+          assert.deepStrictEqual(
+            yield* sql`SELECT name FROM effect_sql_migrations WHERE migration_id = 53`,
+            [{ name: "ProjectionThreadSessionExternalControl" }],
+          );
+        }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: dbPath })));
+      }).pipe(Effect.scoped, Effect.provide(layerT3Home)),
+  );
+
+  it.effect("opens a repaired fork while a running server owns it without changing schema", () =>
+    Effect.gen(function* () {
+      yield* migrateTo();
+      const { dbPath } = yield* ServerConfig.ServerConfig;
+      const before = yield* Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE effect_sql_migrations SET name = 'RepairAuthSessionClientConnection'
+          WHERE migration_id = 55`;
+        yield* sql`UPDATE effect_sql_migrations SET name = 'RepairForkRelaySchema'
+          WHERE migration_id = 56`;
+        return yield* sql`PRAGMA schema_version`;
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: dbPath })));
+      yield* ownT3Home();
+
+      yield* Effect.void.pipe(Effect.provide(SqlitePersistence.layerCliConfig));
+
+      yield* Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        assert.deepStrictEqual(yield* sql`PRAGMA schema_version`, before);
+        assert.deepStrictEqual(
+          yield* sql`SELECT migration_id, name FROM effect_sql_migrations
+            WHERE migration_id IN (55, 56) ORDER BY migration_id`,
+          [
+            { migration_id: 55, name: "RepairAuthSessionClientConnection" },
+            { migration_id: 56, name: "RepairForkRelaySchema" },
+          ],
+        );
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: dbPath })));
+    }).pipe(Effect.scoped, Effect.provide(layerT3Home)),
+  );
 });
