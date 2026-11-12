@@ -327,6 +327,7 @@ import { modelFallbackBannerItem } from "./chat/ComposerUsageLimits";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import { resolveThreadSyncPhase } from "../threadSync";
 import { hasAvailableCompactionProvider } from "./chat/compaction.logic";
+import { shouldReserveContextWindowMeter } from "./chat/ContextWindowMeter.logic";
 import {
   deriveLatestContextWindowSnapshot,
   hasDismissedResumeCompaction,
@@ -3655,6 +3656,14 @@ export default function ChatView(props: ChatViewProps) {
                                     : composerBannerItems
                                 }
                                 resumeCompactionTokens={resumeCompactionTokens}
+                                activeContextWindow={activeContextWindow}
+                                reserveContextWindowMeter={shouldReserveContextWindowMeter({
+                                  detailLoading: threadDetailLoading,
+                                  thread: activeThreadShell,
+                                  providerReportsContextWindow: activeProviderStatus
+                                    ? activeProviderStatus.reportsContextWindow === true
+                                    : null,
+                                })}
                                 keepFullHistory={keepFullHistory}
                                 onToggleKeepFullHistory={toggleKeepFullHistoryStable}
                                 sideChatAvailable={sideChat.available}

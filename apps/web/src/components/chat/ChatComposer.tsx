@@ -46,6 +46,7 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
+import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
 import { formatComposerModelMention } from "@t3tools/client-runtime/composer-model-mentions";
@@ -378,6 +379,8 @@ export interface ChatComposerProps {
   isPreparingWorktree: boolean;
   canSteer: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
+  activeContextWindow: ContextWindowSnapshot | null;
+  reserveContextWindowMeter: boolean;
   resumeCompactionTokens: number | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
@@ -3660,6 +3663,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     key={`${environmentId}:${activeThreadId ?? "new"}`}
                     compact={isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
+                    activeContextWindow={props.activeContextWindow}
+                    reserveContextWindowMeter={props.reserveContextWindowMeter}
+                    usageProvider={selectedProviderStatus}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running" || phase === "connecting"}
                     canInterrupt={canInterrupt}

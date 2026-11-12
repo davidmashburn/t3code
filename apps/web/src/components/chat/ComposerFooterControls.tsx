@@ -1,13 +1,21 @@
-import type { ModelSelection, ProviderInstanceId, RuntimeMode } from "@t3tools/contracts";
+import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
+import type {
+  ModelSelection,
+  ProviderInstanceId,
+  RuntimeMode,
+  ServerProvider,
+} from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { type ComponentProps, memo, useId, useRef, useState } from "react";
 
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
+import { ProviderUsageMeter } from "../ProviderUsage";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { focusRequestedPermission, useComposerMenuProps } from "./composerEventScope";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { runtimeModeConfig } from "./runtimeModeConfig";
@@ -189,6 +197,9 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   children?: React.ReactNode;
   compact: boolean;
   canOperateThread: boolean;
+  activeContextWindow: ContextWindowSnapshot | null;
+  reserveContextWindowMeter: boolean;
+  usageProvider: ServerProvider | null;
   isPreparingWorktree: boolean;
   pendingAction: {
     questionIndex: number;
@@ -222,6 +233,12 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
 }) {
   return (
     <>
+      {props.activeContextWindow ? (
+        <ContextWindowMeter usage={props.activeContextWindow} />
+      ) : props.reserveContextWindowMeter ? (
+        <ContextWindowMeterPlaceholder />
+      ) : null}
+      <ProviderUsageMeter provider={props.usageProvider} />
       <ComposerPrimaryActions
         compact={props.compact}
         canOperateThread={props.canOperateThread}
